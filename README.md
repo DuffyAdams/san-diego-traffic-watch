@@ -164,7 +164,12 @@ Scrape and enrichment behavior:
 
 - Source scrapers run concurrently every 15 seconds.
 - A failed source is isolated from stale-incident cleanup, so an upstream outage cannot clear that source's live incidents.
-- New incidents are inserted quickly, then Mistral description refreshes continue
+- Every new incident immediately receives a description from its reported type, location,
+  community, and available dispatch details. Existing meaningful summaries are preserved;
+  the API also supplies factual descriptions for historical blank/placeholder records.
+- Already-closed source records (including SDSO calls) keep these factual descriptions
+  without scheduling AI work that the active-only worker cannot save.
+- New active incidents are inserted quickly, then Mistral description refreshes continue
   in the background with `mistralai/mistral-nemo`. Pending per-incident refreshes
   are persisted and retried after transient failures or service restarts; no
   bulk-model refinement is used.
@@ -178,6 +183,8 @@ Incident summaries use `mistralai/mistral-nemo`.
 
 Operational helper scripts live in [scripts](scripts):
 
+- `python3 -m scripts.backfill_descriptions`: preview historical placeholder repairs;
+  add `--apply` after a database backup to persist them in bounded transactions without AI calls.
 - `python3 -m scripts.backup_db`: create a consistent WAL-safe backup in `backups/` and retain the newest three copies
 - `python3 -m scripts.restore_db`: restore the newest backup
 - `python3 -m scripts.restore_db backups/traffic_data_<timestamp>.db`: restore a specific backup

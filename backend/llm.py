@@ -13,6 +13,7 @@ from .config import (
     print_lock,
 )
 from .logging_utils import safe_print
+from .descriptions import source_description, usable_description
 
 # Track total LLM calls (thread-safe via print_lock)
 _call_count = 0
@@ -38,7 +39,7 @@ def generate_description(data, raise_on_error=False):
     if not LLM_API_CONFIGURED:
         if raise_on_error:
             raise RuntimeError("LLM API is not configured")
-        return ("Traffic incident reported.", 5 if is_sig_alert else None)
+        return (source_description(data), 5 if is_sig_alert else None)
 
     details = data.get("Details") or []
     if isinstance(details, str):
@@ -54,6 +55,8 @@ def generate_description(data, raise_on_error=False):
         "object, no markdown or extra text.\n"
         "The JSON must have exactly two keys:\n"
         '  "summary": a factual, tweet-length summary (under 200 chars) with related emojis. '
+        "Use only supplied facts; dispatch categories are reports, not confirmed outcomes. "
+        "Do not invent injuries, arrests, closures, causes, or resolution. "
         "No warnings, advice, hashtags, or extra commentary.\n"
         '  "severity": an integer from 1 to 5 based on this scale:\n'
         "    1 = minor (very small delay, single vehicle stopped, should clear soon)\n"
@@ -71,7 +74,7 @@ def generate_description(data, raise_on_error=False):
         safe_print(f"Error generating description: {e}")
         if raise_on_error:
             raise
-        return ("Traffic incident reported.", 5 if is_sig_alert else None)
+        return (source_description(data), 5 if is_sig_alert else None)
 
 
 def _call_llm(system_prompt, user_message):
@@ -86,32 +89,21 @@ def _call_llm(system_prompt, user_message):
 
 
 def _parse_response(response, is_sig_alert):
-    """Parse JSON from LLM response; fall back to raw text on error."""
-    raw = response.choices[0].message.content.strip()
-    try:
-        cleaned = raw
-        # Strip markdown fences
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
-
-        # Extract first JSON object (handles trailing emojis/text)
-        brace_start = cleaned.find("{")
-        brace_end = cleaned.rfind("}")
-        if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
-            cleaned = cleaned[brace_start : brace_end + 1]
-
-        parsed = json.loads(cleaned)
-        summary = str(parsed.get("summary", "")).strip() or raw[:500]
-        sev = parsed.get("severity")
-        severity = int(sev) if sev is not None and 1 <= int(sev) <= 5 else None
-
-        if is_sig_alert:
-            severity = 5
-        return (summary, severity)
-
-    except (json.JSONDecodeError, ValueError, TypeError):
-        safe_print(f"Could not parse JSON from LLM, raw response: {raw[:200]}")
-        return (raw[:500], 5 if is_sig_alert else None)
+    """Reject unusable output so failures retain their durable retry marker."""
+    raw = response.choices[0].message.content
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("Empty incident summary")
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    brace_start, brace_end = cleaned.find("{"), cleaned.rfind("}")
+    if brace_start != -1 and brace_end > brace_start:
+        cleaned = cleaned[brace_start : brace_end + 1]
+    parsed = json.loads(cleaned)
+    if not isinstance(parsed, dict) or not usable_description(parsed.get("summary")):
+        raise ValueError("Missing incident summary")
+    sev = parsed.get("severity")
+    severity = sev if type(sev) is int and 1 <= sev <= 5 else None
+    return parsed["summary"].strip(), 5 if is_sig_alert else severity

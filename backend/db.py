@@ -10,6 +10,7 @@ import sqlite3
 from .config import DB_FILE, db_lock, pst_date_str, pst_timestamp_str
 from .logging_utils import safe_print
 from .llm import generate_description
+from .descriptions import incident_description, source_description, usable_description
 from .sqlite_utils import sqlite_connection
 
 
@@ -223,6 +224,8 @@ def read_incidents(
 
         cur.execute(query, tuple(params))
         incidents = [dict(row) for row in cur.fetchall()]
+        for incident in incidents:
+            incident["description"] = incident_description(incident)
 
         if incidents:
             _attach_comments(cur, incidents)
@@ -421,11 +424,16 @@ def save_or_update_incident(
         if generate_description_on_insert:
             new_description, new_severity = generate_description(data)
         else:
-            new_description = str(data.get("description", "") or "")
+            new_description = incident_description(data)
             new_severity = data.get("severity")
     else:
         new_description = existing_record.get("description")
         new_severity    = existing_record.get("severity")
+        if (
+            not usable_description(new_description)
+            or new_description == source_description(existing_record)
+        ):
+            new_description = source_description(data)
 
     # ── Apply DB update/insert ─────────────────────────────────────────────
     with db_lock:
@@ -439,11 +447,18 @@ def save_or_update_incident(
 
                 if details_json != existing_data.get("details", ""):
                     updates.append(
-                        "details = ?, description = ?, llm_pending_at = ?"
+                        "details = ?, llm_pending_at = ?"
                     )
                     params.extend(
-                        [details_json, new_description, pst_timestamp_str()]
+                        [details_json, pst_timestamp_str()]
                     )
+
+                if new_description != existing_data.get("description"):
+                    # A background AI summary may have arrived since prefetch.
+                    updates.append(
+                        "description = CASE WHEN description IS ? THEN ? ELSE description END"
+                    )
+                    params.extend([existing_data.get("description"), new_description])
 
                 mutable_values = {
                     "timestamp": new_timestamp,
@@ -515,7 +530,7 @@ def save_or_update_incident(
                         active_status, source, geocode_precision, new_severity,
                         None,
                         None,
-                        pst_timestamp_str() if not generate_description_on_insert else None,
+                        pst_timestamp_str() if not generate_description_on_insert and active_status else None,
                     ),
                 )
                 conn.commit()
