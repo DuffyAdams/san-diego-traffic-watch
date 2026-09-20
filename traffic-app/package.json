@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "vite --mode mock",
+    "dev:live": "vite --mode backend",
     "dev:local": "vite --host 127.0.0.1",
     "dev:proxy": "vite --mode proxy",
     "dev:backend": "node ./scripts/dev-processes.mjs --backend-only",
@@ -19,6 +21,7 @@
     "vite-plugin-static-copy": "^3.2.0"
   },
   "dependencies": {
+    "html-to-image": "^1.11.13",
     "lucide-svelte": "^0.562.0",
     "maplibre-gl": "^5.19.0",
     "pmtiles": "^4.4.0"

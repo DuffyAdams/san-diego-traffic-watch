@@ -1,42 +1,15 @@
 <script>
-    import { onMount, onDestroy } from "svelte";
+    import { liveClock } from "../../stores/pageActivity.js";
     import { formatTimestamp } from "../../utils/helpers.js";
     import { formatRelativeTimeFromNow, t } from "../../utils/i18n.js";
 
     export let timestamp;
 
     let relativeTime = "";
-    let interval;
     let staticTime = "";
 
-    function updateTime() {
-        if (!timestamp) {
-            relativeTime = t("fallback.recent");
-            staticTime = t("fallback.recent");
-            return;
-        }
-
-        staticTime = formatTimestamp(timestamp);
-        relativeTime = formatRelativeTimeFromNow(timestamp, { style: "short" });
-    }
-
-    onMount(() => {
-        updateTime();
-        interval = setInterval(updateTime, 1000);
-    });
-
-    onDestroy(() => {
-        if (interval) clearInterval(interval);
-    });
-
-    $: {
-        timestamp;
-        updateTime();
-        if (interval) {
-            clearInterval(interval);
-            interval = setInterval(updateTime, 1000);
-        }
-    }
+    $: staticTime = timestamp ? formatTimestamp(timestamp) : t("fallback.recent");
+    $: relativeTime = formatRelativeTimeFromNow(timestamp, { style: "short", now: $liveClock });
 </script>
 
 <span class="timestamp-container" aria-label={`${staticTime} (${relativeTime})`}>
@@ -61,6 +34,7 @@
         color: var(--accent-primary, #3b82f6);
         padding: 0.35rem 0.6rem;
         border-radius: 6px;
+        corner-shape: squircle;
         font-family: var(--font-mono, monospace);
         font-size: 0.75rem;
         font-weight: 700;
@@ -69,7 +43,7 @@
         letter-spacing: 0.05em;
         opacity: 0;
         visibility: hidden;
-        transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        transition: all 0.2s var(--ease-out);
         border: 1px solid var(--accent-primary, #3b82f6);
         box-shadow:
             0 4px 12px rgba(0, 0, 0, 0.5),

@@ -77,8 +77,11 @@ def build_incident_stats_payload(
         events_last_hour = _count_with_source(
             cur,
             sources,
-            "timestamp >= ?",
-            [(now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")],
+            "timestamp >= ? AND timestamp < ?",
+            [
+                (now - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
+                now.strftime("%Y-%m-%d %H:%M:%S"),
+            ],
         )
 
         query, params = make_query("SELECT COUNT(*) FROM incidents", "active = 1")
@@ -107,7 +110,11 @@ def build_incident_stats_payload(
         top_locations = dict(cur.fetchall())
 
         chart_data = _build_chart_data(cur, sources, selected_range, now)
-        historical_average = _historical_hour_average(cur, sources, now)
+        previous_week_data = (
+            _previous_week_chart_data(cur, sources, now)
+            if selected_range == "day" else None
+        )
+        historical_average, historical_samples = _historical_hour_average(cur, sources, now)
 
     runtime_snapshot = get_runtime_metrics()
     return {
@@ -120,7 +127,9 @@ def build_incident_stats_payload(
         "incidentsByType": incidents_by_type,
         "topLocations": top_locations,
         "hourlyData": chart_data,
+        "previousWeekHourlyData": previous_week_data,
         "historicalCurrentHourAverage": historical_average,
+        "historicalHourSampleCount": historical_samples,
         "generatedAt": now.isoformat(),
         "apiRequestsServed": runtime_snapshot["apiRequestsServed"],
         "averageScrapeTime": runtime_snapshot["averageScrapeTime"],
@@ -241,30 +250,64 @@ def _build_chart_data(cur, sources, date_filter, now):
     return [counts.get(index, 0) for index in range(24)]
 
 
-def _historical_hour_average(cur, sources, now):
-    hour = now.strftime("%H")
-    weekday = now.strftime("%w")
-    clauses, params = _source_clause(sources)
-    clauses.extend(
-        ("strftime('%w', timestamp) = ?", "strftime('%H', timestamp) = ?")
+def _previous_week_chart_data(cur, sources, now):
+    """Use the same rolling 24 hours, shifted back seven days.
+
+    As with the historical average, records on each touched calendar day are
+    our coverage proxy. Missing history must not appear as a zero-activity day.
+    """
+    end = now - timedelta(weeks=1)
+    start = end - timedelta(hours=24)
+    first_day = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    last_day = (end - timedelta(seconds=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
     )
-    params.extend((weekday, hour))
+    clauses, params = _source_clause(sources)
+    clauses.extend(("timestamp >= ?", "timestamp < ?"))
+    params.extend((
+        first_day.strftime("%Y-%m-%d %H:%M:%S"),
+        (last_day + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
+    ))
     cur.execute(
-        f"SELECT COUNT(*) FROM incidents WHERE {' AND '.join(clauses)}",
+        f"SELECT COUNT(DISTINCT date(timestamp)) FROM incidents WHERE {' AND '.join(clauses)}",
         params,
     )
-    total = cur.fetchone()[0] or 0
+    if cur.fetchone()[0] != (last_day - first_day).days + 1:
+        return None
+    return _build_chart_data(cur, sources, "day", end)
 
-    day_clauses, day_params = _source_clause(sources)
-    day_clauses.append("strftime('%w', timestamp) = ?")
-    day_params.append(weekday)
-    cur.execute(
-        f"""
-        SELECT COUNT(DISTINCT date(timestamp))
-        FROM incidents
-        WHERE {' AND '.join(day_clauses)}
-        """,
-        day_params,
-    )
-    unique_days = cur.fetchone()[0] or 1
-    return total / unique_days
+
+def _historical_hour_average(cur, sources, now):
+    """Compare the same rolling hour in the previous eight weeks.
+
+    Days without any records for the selected sources are unknown, not zero.
+    This is a coverage proxy until per-source ingestion history is available.
+    A covered day with no incidents in the matching hour is a valid zero.
+    """
+    samples = []
+    for weeks_ago in range(1, 9):
+        end = now - timedelta(weeks=weeks_ago)
+        start = end - timedelta(hours=1)
+        first_day = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        last_day = (end - timedelta(seconds=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        clauses, params = _source_clause(sources)
+        clauses.extend(("timestamp >= ?", "timestamp < ?"))
+        params.extend((
+            first_day.strftime("%Y-%m-%d %H:%M:%S"),
+            (last_day + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        ))
+        cur.execute(
+            f"""
+            SELECT COUNT(DISTINCT date(timestamp)),
+                   SUM(CASE WHEN timestamp >= ? AND timestamp < ? THEN 1 ELSE 0 END)
+            FROM incidents WHERE {' AND '.join(clauses)}
+            """,
+            [start.strftime("%Y-%m-%d %H:%M:%S"),
+             end.strftime("%Y-%m-%d %H:%M:%S"), *params],
+        )
+        covered_days, count = cur.fetchone()
+        if covered_days == (last_day - first_day).days + 1:
+            samples.append(count or 0)
+    return (sum(samples) / len(samples), len(samples)) if samples else (0, 0)

@@ -62,6 +62,7 @@
         background: transparent;
         border: 1px solid transparent;
         border-radius: 13px;
+        corner-shape: squircle;
         font-size: 0.8rem;
         font-weight: 550;
         cursor: pointer;
@@ -81,7 +82,16 @@
     }
 
     .source-tab:active { transform: scale(.97); }
-    .source-tab.active :global(svg) { color: var(--accent-primary); }
+    .source-tab :global(svg) { transition: color 180ms ease; }
+    .source-tab.active :global(svg) {
+        color: var(--accent-primary);
+        animation: select-source 240ms var(--ease-out);
+    }
+
+    @keyframes select-source {
+        from { transform: translateY(3px); }
+        to { transform: translateY(0); }
+    }
 
     @media (max-width: 650px) {
         .source-tabs { padding-bottom: .1rem; }

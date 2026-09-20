@@ -1,12 +1,15 @@
 <script>
   import { onMount } from "svelte";
-  import { fade } from "svelte/transition";
+  import { fade } from "./utils/motion.js";
+  import { expandPanel } from "./utils/expandPanel.js";
+  import { pageVisible } from "./stores/pageActivity.js";
 
   // Import components
   import Header from "./components/ui/Header.svelte";
   import HeadlineTicker from "./components/feed/HeadlineTicker.svelte";
   import SkeletonCard from "./components/feed/SkeletonCard.svelte";
   import PostCard from "./components/feed/PostCard.svelte";
+  import ShareDialog from "./components/feed/ShareDialog.svelte";
   import ToastContainer from "./components/ui/ToastContainer.svelte";
   import ViewToggle from "./components/ui/ViewToggle.svelte";
   import SourceTabs from "./components/ui/SourceTabs.svelte";
@@ -24,7 +27,7 @@
   import { compareText, t } from "./utils/i18n.js";
   import { getCachedEntry, setCachedEntry } from "./utils/cache.js";
   import { buildIncidentsUrl, buildStatsUrl } from "./utils/apiUrls.js";
-  import { buildPostFromIncident, fuzzyMatch } from "./utils/incidents.js";
+  import { buildPostFromIncident, fuzzyMatch, reconcileIncidents } from "./utils/incidents.js";
   import { loadMapLibraries } from "./utils/mapRuntime.js";
 
   /**
@@ -92,7 +95,9 @@
    * @property {Record<string, number>} incidentsByType
    * @property {Record<string, number>} topLocations
    * @property {number[]} [hourlyData]
+   * @property {number[] | null} [previousWeekHourlyData]
    * @property {number} [historicalCurrentHourAverage]
+   * @property {number} [historicalHourSampleCount]
    * @property {string} [generatedAt]
    */
 
@@ -120,17 +125,20 @@
    */
 
   /** @typedef {CustomEvent<{ postId: string }>} PostIdEvent */
-  /** @typedef {CustomEvent<{ post: Post }>} PostShareEvent */
+  /** @typedef {CustomEvent<{ post: Post, elements: HTMLElement[] }>} PostShareEvent */
   /** @typedef {CustomEvent<string>} StringDetailEvent */
 
   // State variables
   /** @type {Post[]} */
   let posts = [];
+  /** @type {{ post: Post, elements: HTMLElement[] } | null} */
+  let shareRequest = null;
   let loading = true;
+  let hasLoadedFeed = false;
+  let animateFeedEntrance = true;
   let darkMode = true;
   let accessibilityMode = false;
   let currentUsername = "";
-  let lastToggleTime = 0;
   let postsPerPage = 15;
   let currentPage = 1;
   let loadingMore = false;
@@ -188,7 +196,9 @@
 
   /** @type {number[]} */
   let hourlyData = [];
-  let historicalCurrentHourAverage = 0;
+  let previousWeekHourlyData = null;
+  let historicalCurrentHourAverage = null;
+  let historicalHourSampleCount = 0;
   let statsReferenceTime = "";
 
   // Data Source Management
@@ -199,8 +209,13 @@
    */
   function setSourceFilter(source) {
     if (activeSource === source) return;
+    stopUpdateRequest();
     activeSource = source;
     if (source === "map") {
+      currentController?.abort();
+      currentRequestId++;
+      loading = false;
+      loadingMore = false;
       stopStatsRequest();
       void Promise.all([ensureMapTabLoaded(), preloadMapResources()]);
       return;
@@ -277,7 +292,8 @@
       if (!isFirstCheck && !previouslyOnline) {
         addToast(t("toast.connectionRestored"), "success");
       }
-      if (posts.length === 0) fetchIncidents();
+      if (activeSource !== "map" && posts.length === 0) fetchIncidents();
+      else if (!isFirstCheck && !previouslyOnline) checkForUpdates();
       if (shouldFetchStats()) fetchIncidentStats();
     }
     isFirstCheck = false;
@@ -299,8 +315,15 @@
   let statsController = null;
   let currentRequestId = 0;
   let currentStatsRequestId = 0;
+  let updateController = null;
+
+  function stopUpdateRequest() {
+    updateController?.abort();
+    updateController = null;
+  }
 
   function clearIncidentCaches() {
+    stopUpdateRequest();
     apiCache.clear();
   }
 
@@ -315,6 +338,7 @@
 
   function stopStatsRequest() {
     if (!statsController) return;
+    currentStatsRequestId++;
     statsController.abort();
     statsController = null;
   }
@@ -440,7 +464,9 @@
   }
 
   async function fetchIncidents() {
+    stopUpdateRequest();
     const requestId = ++currentRequestId;
+    const replaceFeed = currentPage === 1;
 
     if (currentController) {
       currentController.abort();
@@ -450,11 +476,12 @@
     const signal = controller.signal;
 
     try {
-      if (currentPage === 1) {
+      // Keep the mounted feed and ticker until the replacement is ready.
+      // Replaying height-based entrances on filter changes collapses the page.
+      animateFeedEntrance = !hasLoadedFeed || !replaceFeed;
+      if (replaceFeed) {
         loading = true;
-        posts = [];
-        seenCompositeKeys.clear();
-        lastCursor = null;
+        loadingMore = false;
       } else {
         loadingMore = true;
       }
@@ -471,7 +498,7 @@
       const cacheKey = url;
       const cachedData = getCachedEntry(apiCache, cacheKey, API_CACHE_TTL_MS);
       if (cachedData) {
-        if (requestId === currentRequestId) processIncidents(cachedData);
+        if (requestId === currentRequestId) processIncidents(cachedData, replaceFeed);
         return;
       }
 
@@ -492,16 +519,22 @@
         return;
       }
 
+      if (!Array.isArray(incidents)) throw new Error("Invalid incidents data: expected array");
       setCachedEntry(apiCache, cacheKey, incidents, MAX_API_CACHE_ENTRIES);
-      processIncidents(incidents);
+      processIncidents(incidents, replaceFeed);
     } catch (err) {
-      if (!(err instanceof Error) || err.name !== "AbortError") {
+      if (!signal.aborted && requestId === currentRequestId && (!(err instanceof Error) || err.name !== "AbortError")) {
         console.error("Error fetching incidents:", err);
         addToast(
           t("toast.failedLoadIncidents"),
           "error",
         );
-        if (currentPage === 1 && posts.length === 0) {
+        if (replaceFeed) {
+          // Do not leave the previous source's results under a new source label.
+          seenCompositeKeys.clear();
+          lastCursor = null;
+          allPostsLoaded = true;
+          hasLoadedFeed = true;
           posts = [
             {
               id: "error-fallback",
@@ -533,11 +566,8 @@
       }
     } finally {
       if (requestId === currentRequestId) {
-        if (currentPage === 1) {
-          loading = false;
-        } else {
-          loadingMore = false;
-        }
+        loading = false;
+        loadingMore = false;
       }
       if (currentController === controller) {
         currentController = null;
@@ -547,14 +577,20 @@
 
   /**
    * @param {Incident[]} incidents
+   * @param {boolean} replaceFeed
    */
-  function processIncidents(incidents) {
+  function processIncidents(incidents, replaceFeed) {
     if (!Array.isArray(incidents)) {
       console.error("Invalid incidents data: expected array");
       addToast(t("toast.invalidIncidentData"), "error");
       return;
     }
 
+    // Reset pagination only when the winning request commits its results.
+    if (replaceFeed) {
+      seenCompositeKeys.clear();
+      lastCursor = null;
+    }
     const newProcessedPosts = incidents
       .filter((incident) => {
         if (!incident || typeof incident !== "object") return false;
@@ -583,7 +619,7 @@
       : newProcessedPosts;
 
     // Sort by timestamp (newest first) after merging to ensure correct order
-    posts = [...posts, ...filteredPosts].sort((a, b) => {
+    posts = [...(replaceFeed ? [] : posts), ...filteredPosts].sort((a, b) => {
       const timeA = new Date(a.timestamp).getTime();
       const timeB = new Date(b.timestamp).getTime();
       if (timeB !== timeA) return timeB - timeA;
@@ -597,10 +633,11 @@
     }
 
     allPostsLoaded = incidents.length < postsPerPage;
+    hasLoadedFeed = true;
   }
 
   function loadMorePosts() {
-    if (loadingMore || allPostsLoaded) return;
+    if (activeSource === "map" || loading || loadingMore || allPostsLoaded) return;
     loadingMore = true;
     currentPage++;
     fetchIncidents();
@@ -632,7 +669,7 @@
   }, 100);
 
   function forceLoadMore() {
-    if (allPostsLoaded || loadingMore) return;
+    if (activeSource === "map" || loading || allPostsLoaded || loadingMore) return;
     currentPage++;
     fetchIncidents();
   }
@@ -675,8 +712,10 @@
         );
         // Important: Create new array reference for caching to trigger Svelte reactivity
         hourlyData = (cachedStats.hourlyData || []).map(Number);
+        previousWeekHourlyData = cachedStats.previousWeekHourlyData ?? null;
         historicalCurrentHourAverage =
-          cachedStats.historicalCurrentHourAverage || 0;
+          cachedStats.historicalCurrentHourAverage ?? null;
+        historicalHourSampleCount = cachedStats.historicalHourSampleCount ?? 0;
         statsReferenceTime = cachedStats.generatedAt || "";
         return;
       }
@@ -694,7 +733,7 @@
       /** @type {IncidentStatsResponse} */
       const stats = await retryWithBackoff(fetchFn, 3, 1000);
 
-      if (requestId !== currentStatsRequestId) {
+      if (signal.aborted || requestId !== currentStatsRequestId) {
         return;
       }
 
@@ -705,7 +744,9 @@
       eventsActive = stats.eventsActive;
       totalIncidents = stats.totalIncidents;
       hourlyData = (stats.hourlyData || []).map(Number);
-      historicalCurrentHourAverage = stats.historicalCurrentHourAverage || 0;
+      previousWeekHourlyData = stats.previousWeekHourlyData ?? null;
+      historicalCurrentHourAverage = stats.historicalCurrentHourAverage ?? null;
+      historicalHourSampleCount = stats.historicalHourSampleCount ?? 0;
       statsReferenceTime = stats.generatedAt || "";
 
       incidentsByType = Object.fromEntries(
@@ -715,7 +756,7 @@
         Object.entries(stats.topLocations).sort(([, a], [, b]) => b - a),
       );
     } catch (err) {
-      if (!(err instanceof Error) || err.name !== "AbortError") {
+      if (!signal.aborted && requestId === currentStatsRequestId && (!(err instanceof Error) || err.name !== "AbortError")) {
         console.error("Error fetching incident stats:", err);
         addToast(t("toast.failedLoadIncidentStats"), "error");
       }
@@ -730,6 +771,7 @@
    * @param {string} postId
    */
   async function likePost(postId) {
+    stopUpdateRequest();
     const post = posts.find((p) => p.id === postId);
     if (!post || post.liking) return;
 
@@ -798,38 +840,17 @@
    * @param {string} postId
    */
   function toggleComments(postId) {
-    const now = Date.now();
-    if (now - lastToggleTime < 200) return;
-    lastToggleTime = now;
     posts = posts.map((post) =>
       post.id === postId ? { ...post, showComments: !post.showComments } : post,
     );
   }
 
   /**
-   * @param {Post} post
-   */
-  function sharePost(post) {
-    const text = t("share.incidentSummary", {
-      description: post.description,
-      location: post.location,
-    });
-    const url = window.location.origin;
-
-    if (navigator.share) {
-      navigator.share({ title: t("app.name"), text, url });
-    } else {
-      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
-      window.open(twitterUrl, "_blank");
-    }
-  }
-
-
-  /**
    * @param {string} postId
    * @param {string | null} [commentContent=null]
    */
   async function submitComment(postId, commentContent = null) {
+    stopUpdateRequest();
     const post = posts.find((p) => p.id === postId);
     const commentText =
       commentContent !== null ? commentContent : post?.newComment;
@@ -1005,7 +1026,7 @@
    * @param {PostShareEvent} event
    */
   function handlePostShare(event) {
-    sharePost(event.detail.post);
+    shareRequest = event.detail;
   }
 
   /**
@@ -1084,15 +1105,33 @@
       });
     }
 
-    const updateInterval = setInterval(() => {
-      if (isOnline && !loading && !loadingMore) {
+    const refresh = () => {
+      if (isOnline && !loading && !loadingMore && activeSource !== "map") {
         checkForUpdates();
         if (shouldFetchStats()) fetchIncidentStats();
       }
-    }, 20000);
+    };
+    let updateInterval;
+    const unsubscribeVisibility = pageVisible.subscribe((visible) => {
+      document.body.classList.toggle("page-hidden", !visible);
+      clearInterval(updateInterval);
+      if (visible) {
+        refresh();
+        updateInterval = setInterval(refresh, 20000);
+      } else {
+        stopUpdateRequest();
+        stopStatsRequest();
+      }
+    });
 
     return () => {
       clearInterval(updateInterval);
+      unsubscribeVisibility();
+      currentController?.abort();
+      stopUpdateRequest();
+      stopStatsRequest();
+      debouncedHandleScroll.cancel();
+      document.body.classList.remove("page-hidden");
       if (mapPreloadTimer) window.clearTimeout(mapPreloadTimer);
       window.removeEventListener("online", updateOnlineStatus);
       window.removeEventListener("offline", updateOnlineStatus);
@@ -1143,73 +1182,46 @@
   }
 
   async function checkForUpdates() {
+    if (updateController || document.hidden || !isOnline || activeSource === "map") return;
+    const controller = new AbortController();
+    updateController = controller;
+    const requestId = currentRequestId;
     try {
-      let url = `/api/incidents?limit=${postsPerPage}`;
-      if (selectedTypes.size > 0) {
-        for (const type of selectedTypes) {
-          url += `&type=${encodeURIComponent(type)}`;
-        }
-      }
-      if (selectedLocations.size > 0) {
-        for (const loc of selectedLocations) {
-          url += `&location=${encodeURIComponent(loc)}`;
-        }
-      }
-      if (showActiveOnly) {
-        url += `&active_only=true`;
-      }
-      if (activeSource && activeSource !== "all" && activeSource !== "map") {
-        url += `&source=${encodeURIComponent(activeSource)}`;
-      }
-
-      const res = await fetch(url);
-      if (!res.ok) return;
-      /** @type {Incident[]} */
-      const newIncidents = await res.json();
-
-      if (!Array.isArray(newIncidents)) return;
-
-      let updatedPosts = [...posts];
-      let newPostsCount = 0;
-
-      newIncidents.forEach((incident) => {
-        if (!incident || !incident.incident_no || !incident.timestamp) return;
-
-        const existingIndex = updatedPosts.findIndex(
-          (p) => p.id === incident.incident_no,
-        );
-
-        if (existingIndex !== -1) {
-          // Update the existing post's properties without treating it as new
-          updatedPosts[existingIndex] = {
-            ...updatedPosts[existingIndex],
-            ...buildPostFromIncident(incident, updatedPosts[existingIndex]),
-          };
-        } else {
-          // It's a genuinely new post
-          newPostsCount++;
-          const duplicateKey = `${incident.incident_no}-${incident.timestamp}-${incident.location}`;
-          seenCompositeKeys.add(duplicateKey);
-
-          updatedPosts.unshift(buildPostFromIncident(incident));
-        }
+      const url = buildIncidentsUrl({
+        limit: postsPerPage,
+        types: selectedTypes,
+        locations: selectedLocations,
+        activeOnly: showActiveOnly,
+        source: activeSource,
       });
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) return;
+      const incidents = await res.json();
+      if (controller.signal.aborted || requestId !== currentRequestId || !Array.isArray(incidents)) return;
 
-      // Update posts optimally
-      if (newPostsCount > 0) {
-        clearAllClientCaches();
-        posts = updatedPosts;
-        addToast(t("toast.newIncidents", { count: newPostsCount }), "info");
-      } else {
-        posts = updatedPosts; // Triggers reactivity for updated properties
+      const result = reconcileIncidents(posts, incidents);
+      if (result.posts === posts) return;
+      clearAllClientCaches();
+      posts = result.posts;
+      for (const post of result.additions) {
+        seenCompositeKeys.add(`${post.id}-${post.timestamp}-${post.location}`);
+      }
+      if (result.additions.length) {
+        addToast(t("toast.newIncidents", { count: result.additions.length }), "info");
       }
     } catch (err) {
-      console.error("Error checking for updates:", err);
+      if (!controller.signal.aborted) console.error("Error checking for updates:", err);
+    } finally {
+      if (updateController === controller) updateController = null;
     }
   }
+
 </script>
 
 <div class="container" bind:this={scrollContainer}>
+  {#if import.meta.env.VITE_MOCK_DATA}
+    <p class="mock-data-notice">Demo mode · Sample incidents, not live reports</p>
+  {/if}
   {#if !accessibilityMode}
     <HeadlineTicker
       events={[
@@ -1224,49 +1236,57 @@
       ]}
     />
   {/if}
-  <Header
-    {showEventCounters}
-    {darkMode}
-    {condensedView}
-    accessibilityMode={accessibilityMode}
-    {activeSource}
-    on:toggleEventCounters={toggleEventCounters}
-    on:toggleDarkMode={toggleDarkMode}
-    on:toggleAccessibilityMode={toggleAccessibilityMode}
-    on:toggleView={toggleView}
-  />
+  <div class="header-surface">
+    <Header
+      {showEventCounters}
+      {darkMode}
+      {condensedView}
+      accessibilityMode={accessibilityMode}
+      {activeSource}
+      on:toggleEventCounters={toggleEventCounters}
+      on:toggleDarkMode={toggleDarkMode}
+      on:toggleAccessibilityMode={toggleAccessibilityMode}
+      on:toggleView={toggleView}
+    />
 
-  {#if activeSource !== "map" && StatsPanelComponent}
-    <div
-      class="stats-panel-shell"
-      class:expanded={showEventCounters}
-      aria-hidden={!showEventCounters}
-      inert={!showEventCounters}
-    >
-      <div class="stats-panel-content">
-        <svelte:component
-          this={StatsPanelComponent}
-          {eventsToday}
-          {eventsLastHour}
-          {eventsActive}
-          {totalIncidents}
-          {timeFilter}
-          {hourlyData}
-          {historicalCurrentHourAverage}
-          referenceTime={statsReferenceTime}
-          {incidentsByType}
-          {topLocations}
-          {selectedTypes}
-          {selectedLocations}
-          on:filterTime={handleStatsTimeFilter}
-          on:filterType={handleStatsTypeFilter}
-          on:filterLocation={handleStatsLocationFilter}
-          on:resetTypeFilters={resetTypeFilters}
-          on:resetLocationFilters={resetLocationFilters}
-        />
+    {#if activeSource !== "map"}
+      <div
+        id="incident-stats"
+        class="stats-panel-shell"
+        use:expandPanel={showEventCounters}
+        class:expanded={showEventCounters}
+        aria-hidden={!showEventCounters}
+        inert={!showEventCounters}
+      >
+        <div class="stats-panel-content">
+          {#if StatsPanelComponent}
+            <svelte:component
+              this={StatsPanelComponent}
+              {eventsToday}
+              {eventsLastHour}
+              {eventsActive}
+              {totalIncidents}
+              {timeFilter}
+              {hourlyData}
+              {previousWeekHourlyData}
+              {historicalCurrentHourAverage}
+              {historicalHourSampleCount}
+              referenceTime={statsReferenceTime}
+              {incidentsByType}
+              {topLocations}
+              {selectedTypes}
+              {selectedLocations}
+              on:filterTime={handleStatsTimeFilter}
+              on:filterType={handleStatsTypeFilter}
+              on:filterLocation={handleStatsLocationFilter}
+              on:resetTypeFilters={resetTypeFilters}
+              on:resetLocationFilters={resetLocationFilters}
+            />
+          {/if}
+        </div>
       </div>
-    </div>
-  {/if}
+    {/if}
+  </div>
 
   <div class="toolbar-row">
     <div class="toolbar">
@@ -1307,50 +1327,35 @@
   {/if}
 
   {#if activeSource !== "map"}
-    {#if loading && posts.length === 0}
-      <div class="loading-container" in:fade={{ duration: 150 }}>
-        {#each Array(6) as _}
-          <SkeletonCard />
-        {/each}
-      </div>
-    {:else if posts.length === 0}
-      <div class="empty-state" in:fade={{ duration: 150 }}>
-        <div class="empty-icon">📂</div>
-        <p>{t("state.noIncidentsTitle")}</p>
-        <p>{t("state.noIncidentsSubtitle")}</p>
-      </div>
-    {:else if displayPosts.length === 0}
-      <div class="empty-state" in:fade={{ duration: 150 }}>
-        <div class="empty-icon">🔍</div>
-        <p>{t("state.noSearchTitle")}</p>
-        <p>{t("state.noSearchSubtitle")}</p>
-      </div>
-    {:else if condensedView}
-      {#if PostTableComponent}
-        <svelte:component
-          this={PostTableComponent}
-          posts={displayPosts}
-          {searchQuery}
-          {expandedPostId}
-          on:toggleExpand={handleTableToggleExpand}
-          on:closeComments={handleTableCloseComments}
-          on:like={handlePostLike}
-          on:toggleComments={handlePostToggleComments}
-          on:share={handlePostShare}
-          on:toggleDescription={handlePostToggleDescription}
-          onSubmitComment={handleCommentSubmission}
-          on:goToMap={() => setSourceFilter("map")}
-        />
-      {/if}
-    {:else}
-      <div class="feed" in:fade={{ duration: 200 }}>
-        {#each displayPosts as post, i (post.compositeId)}
-          <PostCard
-            {post}
-            index={i}
-            {postsPerPage}
+    <section class="feed-region" aria-label="Incidents" aria-busy={loading} inert={loading && posts.length > 0}>
+      {#if loading && !hasLoadedFeed}
+        <div class="loading-container" in:fade={{ duration: 150 }}>
+          {#each Array(6) as _}
+            <SkeletonCard />
+          {/each}
+        </div>
+      {:else if posts.length === 0}
+        <div class="empty-state" in:fade={{ duration: 150 }}>
+          <div class="empty-icon">📂</div>
+          <p>{t("state.noIncidentsTitle")}</p>
+          <p>{t("state.noIncidentsSubtitle")}</p>
+        </div>
+      {:else if displayPosts.length === 0}
+        <div class="empty-state" in:fade={{ duration: 150 }}>
+          <div class="empty-icon">🔍</div>
+          <p>{t("state.noSearchTitle")}</p>
+          <p>{t("state.noSearchSubtitle")}</p>
+        </div>
+      {:else if condensedView}
+        {#if PostTableComponent}
+          <svelte:component
+            this={PostTableComponent}
+            posts={displayPosts}
+            {animateFeedEntrance}
             {searchQuery}
-            suspendMiniMaps={suspendFeedMiniMaps}
+            {expandedPostId}
+            on:toggleExpand={handleTableToggleExpand}
+            on:closeComments={handleTableCloseComments}
             on:like={handlePostLike}
             on:toggleComments={handlePostToggleComments}
             on:share={handlePostShare}
@@ -1358,9 +1363,29 @@
             onSubmitComment={handleCommentSubmission}
             on:goToMap={() => setSourceFilter("map")}
           />
-        {/each}
-      </div>
-    {/if}
+        {/if}
+      {:else}
+        <div class="feed" in:fade={{ duration: 200 }}>
+          {#each displayPosts as post, i (post.compositeId)}
+            <PostCard
+              {post}
+              index={i}
+              {animateFeedEntrance}
+              {postsPerPage}
+              {searchQuery}
+              suspendMiniMaps={suspendFeedMiniMaps}
+              on:like={handlePostLike}
+              on:toggleComments={handlePostToggleComments}
+              on:share={handlePostShare}
+              on:toggleDescription={handlePostToggleDescription}
+              onSubmitComment={handleCommentSubmission}
+              on:goToMap={() => setSourceFilter("map")}
+            />
+          {/each}
+        </div>
+      {/if}
+
+    </section>
 
     {#if !allPostsLoaded && posts.length > 0 && posts.length >= postsPerPage}
       <div
@@ -1382,6 +1407,13 @@
   {/if}
 
   <ToastContainer />
+  {#if shareRequest}
+    <ShareDialog
+      post={shareRequest.post}
+      elements={shareRequest.elements}
+      onClose={() => (shareRequest = null)}
+    />
+  {/if}
 
   <footer class="app-footer" in:fade={{ delay: 400, duration: 200 }}>
     <div class="footer-content">
@@ -1399,6 +1431,16 @@
 </div>
 
 <style>
+  .mock-data-notice {
+    margin: 0;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-main);
+    background: var(--bg-surface-elevated);
+    border-bottom: 1px solid var(--border-color);
+  }
+
   :global(html),
   :global(body) {
     margin: 0;
@@ -1432,6 +1474,20 @@
     touch-action: pan-y;
   }
 
+  .feed-region {
+    position: relative;
+  }
+
+  .feed-region[aria-busy="true"]::before {
+    content: "";
+    position: absolute;
+    top: -8px;
+    inset-inline: 0;
+    height: 2px;
+    background: var(--accent-primary);
+    border-radius: 999px;
+  }
+
   .loading-container {
     display: flex;
     flex-wrap: wrap;
@@ -1459,43 +1515,42 @@
     background: var(--bg-surface);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-xl);
+    corner-shape: squircle;
     box-shadow: var(--shadow-sm);
   }
 
+  .header-surface {
+    margin-top: 0.25rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    corner-shape: squircle;
+    box-shadow: var(--shadow-md);
+    overflow: clip;
+  }
+
   .stats-panel-shell {
-    position: relative;
-    z-index: 0;
-    margin-top: -1px;
-    display: grid;
-    grid-template-rows: 0fr;
-    opacity: 0;
+    height: 0;
+    overflow: hidden;
+    overflow-anchor: none;
     visibility: hidden;
     transition:
-      grid-template-rows 380ms var(--ease-out),
-      opacity 220ms ease,
-      visibility 0s linear 380ms;
-    will-change: grid-template-rows, opacity;
+      height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 420ms step-end;
   }
 
   .stats-panel-shell.expanded {
-    grid-template-rows: 1fr;
-    opacity: 1;
     visibility: visible;
-    transition:
-      grid-template-rows 380ms var(--ease-out),
-      opacity 260ms ease 60ms,
-      visibility 0s;
+    transition: height 420ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .stats-panel-content {
-    min-height: 0;
-    overflow: hidden;
+    display: flow-root;
   }
 
-  @starting-style {
-    .stats-panel-shell.expanded {
-      grid-template-rows: 0fr;
-      opacity: 0;
+  @media (max-width: 720px) {
+    .header-surface {
+      border-radius: var(--radius-lg);
     }
   }
 
@@ -1683,6 +1738,7 @@
     padding: 0.38rem;
     border: 1px solid var(--border-color);
     border-radius: 20px;
+    corner-shape: squircle;
     background: var(--bg-surface);
     box-shadow: var(--shadow-md);
   }

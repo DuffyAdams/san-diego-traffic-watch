@@ -7,7 +7,8 @@
     import { formatTimestamp, formatTime } from "../../utils/helpers.js";
     import { activeMarkerId, mapPanTo } from "../../stores/appStore.js";
     import { t } from "../../utils/i18n.js";
-    import { fade } from "svelte/transition";
+    import { fade, motionDuration } from "../../utils/motion.js";
+    import { pageVisible } from "../../stores/pageActivity.js";
 
     // We no longer rely on the parent's paginated feed.
     // MapTab fetches its own complete dataset.
@@ -19,6 +20,7 @@
     let map;
     let markers = {}; // Store marker references by ID
     let refreshInterval;
+    let incidentsController;
     let maplibregl = null;
     let isDestroyed = false;
     let resizeObserver;
@@ -143,8 +145,7 @@
 
         map.easeTo({
             center: clamped,
-            duration: animated ? 260 : 0,
-            essential: true,
+            duration: motionDuration(animated ? 260 : 0),
         });
     }
 
@@ -161,10 +162,14 @@
     }
 
     async function fetchAllIncidents() {
+        if (incidentsController || isDestroyed || !isVisible || document.hidden || !navigator.onLine) return;
+        const controller = new AbortController();
+        incidentsController = controller;
         try {
-            const res = await fetch("/api/incidents?limit=150&active_only=true");
+            const res = await fetch("/api/incidents?limit=150&active_only=true", { signal: controller.signal });
             if (!res.ok) return;
             const data = await res.json();
+            if (controller.signal.aborted || isDestroyed || !Array.isArray(data)) return;
             allIncidents = data
                 .filter((inc) => inc && inc.incident_no && inc.timestamp)
                 .map((inc) => ({
@@ -185,18 +190,21 @@
                 }));
             updateMarkers();
         } catch (err) {
-            console.error("MapTab: Error fetching incidents:", err);
+            if (!controller.signal.aborted) console.error("MapTab: Error fetching incidents:", err);
+        } finally {
+            if (incidentsController === controller) incidentsController = undefined;
         }
     }
 
     function startPolling() {
-        if (!map || refreshInterval || !isVisible) return;
+        if (!map || refreshInterval || !isVisible || document.hidden) return;
         fetchAllIncidents();
         refreshInterval = setInterval(fetchAllIncidents, 60000);
     }
 
     function stopPolling() {
-        if (!refreshInterval) return;
+        incidentsController?.abort();
+        incidentsController = undefined;
         clearInterval(refreshInterval);
         refreshInterval = undefined;
     }
@@ -232,7 +240,7 @@
         }
     }
 
-    $: if (isVisible && map) {
+    $: if (isVisible && $pageVisible && map) {
         startPolling();
         scheduleMapResize();
     } else {
@@ -280,8 +288,7 @@
                     zoom: targetZoom,
                     pitch: MAP_PITCH,
                     bearing: MAP_BEARING,
-                    essential: true,
-                    duration: 1200,
+                    duration: motionDuration(1200),
                 });
                 $activeMarkerId = panData.id;
             }
@@ -969,8 +976,7 @@
                 zoom: getIncidentFocusZoom(),
                 pitch: MAP_PITCH,
                 bearing: MAP_BEARING,
-                essential: true,
-                duration: 1200,
+                duration: motionDuration(1200),
             });
             $activeMarkerId = incident.renderKey;
         }
@@ -1094,6 +1100,7 @@
         height: 100%;
         min-height: 400px;
         border-radius: var(--radius-xl);
+        corner-shape: squircle;
         border: 1px solid var(--border-color);
         overflow: hidden;
         position: relative;
@@ -1117,6 +1124,7 @@
         transform: translate(-50%, -50%);
         border: 1px solid rgba(136, 170, 255, 0.22);
         border-radius: 12px;
+        corner-shape: squircle;
         color: var(--text-muted);
         background: #151922;
         box-shadow: var(--shadow-sm);
@@ -1170,6 +1178,7 @@
         background: #1b1f28;
         border: 1px solid rgba(255,255,255,.14);
         border-radius: 12px;
+        corner-shape: squircle;
         color: #a5adba;
         font-size: 0.72rem;
         font-weight: 680;
@@ -1200,6 +1209,7 @@
         background: #1b1f28 !important;
         border: 1px solid rgba(255,255,255,.14) !important;
         border-radius: 13px !important;
+        corner-shape: squircle;
         overflow: hidden;
         box-shadow: var(--shadow-sm) !important;
     }
@@ -1232,6 +1242,7 @@
         background: var(--bg-surface);
         border: 1px solid var(--border-color);
         border-radius: var(--radius-xl);
+        corner-shape: squircle;
         display: flex;
         flex-direction: column;
         height: 100%;
@@ -1294,6 +1305,7 @@
     .log-list::-webkit-scrollbar-thumb {
         background: #2a3b5c;
         border-radius: 3px;
+        corner-shape: squircle;
     }
 
     .log-item {
@@ -1303,6 +1315,7 @@
         background: var(--bg-surface-elevated);
         border: 1px solid var(--border-color);
         border-radius: 14px;
+        corner-shape: squircle;
         padding: 9px 11px;
         cursor: pointer;
         transition: all 0.2s ease;
@@ -1372,7 +1385,7 @@
 
     @media (max-width: 640px) {
         .map-layout { height: 68vh; min-height: 430px; }
-        .map-container { min-height: 430px; border-radius: 22px; }
+        .map-container { min-height: 430px; border-radius: 22px; corner-shape: squircle; }
         .filter-btn { padding: 7px 10px; font-size: .66rem; }
     }
 </style>

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
+    "test:unit": "node --test *.test.mjs",
     "test:ui": "playwright test specs/ui-workflows.spec.js specs/accessibility.spec.js specs/edge-cases.spec.js specs/release-readiness.spec.js",
     "test:api": "playwright test specs/api-contract.spec.js",
     "test:headed": "playwright test --headed",

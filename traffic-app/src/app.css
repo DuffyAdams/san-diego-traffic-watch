@@ -44,13 +44,23 @@
   --font-pixel: inherit;
   --font-mono: inherit;
   --font-body: inherit;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24), 0 2px 4px rgba(0, 0, 0, 0.14);
   --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.24), 0 6px 14px rgba(0, 0, 0, 0.16);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Continuous curves need a wider corner area than circular rounding. */
+@supports (corner-shape: squircle) {
+  :root {
+    --radius-sm: 14px;
+    --radius-md: 20px;
+    --radius-lg: 30px;
+    --radius-xl: 36px;
+  }
 }
 
 * {
@@ -192,6 +202,7 @@ body.accessibility-mode :focus-visible {
 body.accessibility-mode *,
 body.accessibility-mode *::before,
 body.accessibility-mode *::after {
+  animation-delay: 0ms !important;
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
@@ -203,8 +214,15 @@ body.accessibility-mode *::after {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+body.page-hidden *,
+body.page-hidden *::before,
+body.page-hidden *::after {
+  animation-play-state: paused !important;
 }

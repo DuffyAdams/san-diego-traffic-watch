@@ -1,6 +1,6 @@
 <script>
     import { createEventDispatcher } from "svelte";
-    import { slide, fly } from "svelte/transition";
+    import { slide } from "../../utils/motion.js";
     import CommentOverlay from "./CommentOverlay.svelte";
     import {
         truncateDescription,
@@ -23,6 +23,7 @@
 
     export let post;
     export let index = 0;
+    export let animateFeedEntrance = true;
     export let postsPerPage = 30;
     export let searchQuery = "";
     export let suspendMiniMaps = false;
@@ -97,8 +98,8 @@
         dispatch("toggleComments", { postId: post.id });
     }
 
-    function handleShare() {
-        dispatch("share", { post });
+    function handleShare(event) {
+        dispatch("share", { post, elements: [event.currentTarget.closest(".post")] });
     }
 
     function handleToggleDescription() {
@@ -134,8 +135,8 @@
     class:active={post.active}
     class:sig-alert={isSigAlert}
     in:slide={{
-        delay: Math.min((index % postsPerPage) * 50, 300),
-        duration: 200,
+        delay: animateFeedEntrance ? Math.min((index % postsPerPage) * 25, 100) : 0,
+        duration: animateFeedEntrance ? 280 : 0,
     }}
 >
     <div class="post-content">
@@ -196,7 +197,7 @@
             {#if showRawDetails}
                 <div
                     class="raw-details-inline-overlay"
-                    transition:fly={{ y: 200, duration: 300 }}
+                    transition:slide={{ duration: 200 }}
                 >
                     <div class="raw-details-inline-header">
                         <h4>{t("actions.rawEventDetails")}</h4>
@@ -336,6 +337,7 @@
         color: var(--text-main);
         padding: 0 0.15rem;
         border-radius: 3px;
+        corner-shape: squircle;
         font-weight: 700;
         box-shadow: inset 0 0 0 1px var(--accent-primary);
     }
@@ -347,6 +349,7 @@
         box-sizing: border-box;
         background: var(--bg-surface);
         border-radius: var(--radius-lg);
+        corner-shape: squircle;
         border: 1px solid var(--border-color);
         transition: transform .4s var(--ease-out), border-color .25s, box-shadow .35s;
         position: relative;
@@ -355,14 +358,13 @@
         margin-bottom: 0.35rem;
         width: 100%;
         overflow: hidden;
-        transform: translateZ(0);
         box-shadow: var(--shadow-sm);
     }
 
     .post:hover {
         border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
         box-shadow: var(--shadow-md);
-        transform: translateY(-5px);
+        transform: translateY(-2px);
     }
 
     .post.active {
@@ -410,6 +412,7 @@
         border-bottom: 1px solid var(--border-color);
         background-color: #000;
         border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        corner-shape: squircle;
         isolation: isolate;
     }
 
@@ -439,6 +442,7 @@
         color: var(--text-main);
         padding: 0.42rem 0.68rem;
         border-radius: 12px;
+        corner-shape: squircle;
         border: 1px solid color-mix(in srgb, var(--badge-color) 62%, var(--border-color));
         text-transform: uppercase;
         font-size: 0.7rem;
@@ -471,6 +475,7 @@
         color: #fff;
         padding: 0.25rem 0.5rem;
         border-radius: 11px;
+        corner-shape: squircle;
         text-transform: uppercase;
         font-size: 0.7rem;
         font-weight: 600;
@@ -498,6 +503,7 @@
         color: var(--sev-color);
         padding: 0.15rem 0.5rem 0.15rem 0.15rem;
         border-radius: 10px;
+        corner-shape: squircle;
         text-transform: uppercase;
         font-size: 0.6rem;
         font-weight: bold;
@@ -509,6 +515,7 @@
         width: 16px;
         height: 16px;
         border-radius: 7px;
+        corner-shape: squircle;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -545,6 +552,7 @@
         color: white;
         border: none;
         border-radius: 10px;
+        corner-shape: squircle;
         height: 30px;
         padding: 0 7px;
         display: flex;
@@ -598,6 +606,7 @@
         flex-direction: column;
         z-index: 10;
         border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        corner-shape: squircle;
         overflow: hidden;
     }
 
@@ -627,6 +636,7 @@
         align-items: center;
         justify-content: center;
         border-radius: 10px;
+        corner-shape: squircle;
         transition: all 0.2s;
     }
 
@@ -668,6 +678,7 @@
         height: 100%;
         object-fit: cover;
         border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        corner-shape: squircle;
         transition: transform .7s var(--ease-out);
     }
 
@@ -681,6 +692,7 @@
         height: 100%;
         object-fit: cover;
         border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        corner-shape: squircle;
         transition: transform 0.3s ease;
     }
 
@@ -742,6 +754,7 @@
         padding: 0.9rem;
         border: 1px solid var(--border-color);
         border-radius: 14px;
+        corner-shape: squircle;
     }
 
     .description-text {
@@ -769,6 +782,7 @@
         transition: all 0.15s ease;
         text-transform: uppercase;
         border-radius: 9px;
+        corner-shape: squircle;
         vertical-align: middle;
     }
 
@@ -804,6 +818,7 @@
         font-weight: 500;
         padding: 0.45rem 0;
         border-radius: 12px;
+        corner-shape: squircle;
         cursor: pointer;
         transition: all 0.15s;
         flex: 1;
@@ -816,29 +831,20 @@
         color: var(--accent-primary);
     }
 
-    @keyframes sharpFlash {
-        0% {
-            background-color: var(--accent-secondary);
-            color: #fff;
-            border-color: var(--accent-secondary);
-        }
-        50% {
-            background-color: rgba(255, 51, 51, 0.05);
-            color: var(--accent-secondary);
-            border-color: rgba(255, 51, 51, 0.3);
-        }
-        100% {
-            background-color: rgba(255, 51, 51, 0.15);
-            color: var(--accent-secondary);
-            border-color: var(--accent-secondary);
-        }
-    }
-
     .like-button.liked {
         color: var(--accent-secondary);
         border-color: var(--accent-secondary);
-        animation: sharpFlash 0.3s steps(2);
         background-color: rgba(255, 51, 51, 0.15);
+    }
+
+    .like-button.liked .button-icon {
+        display: inline-flex;
+        animation: like-confirm 260ms var(--ease-out);
+    }
+
+    @keyframes like-confirm {
+        from { transform: translateY(3px); }
+        to { transform: translateY(0); }
     }
 
     .like-button.liked:hover {
@@ -906,9 +912,11 @@
             max-width: 100%;
             margin: 0 0 0.8rem 0;
             border-radius: var(--radius-lg);
+            corner-shape: squircle;
         }
         .post-image-container {
             border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+            corner-shape: squircle;
         }
         .post-info {
             padding: 1rem 1rem 4rem;
@@ -924,9 +932,11 @@
         .post {
             margin: 0 0 0.5rem 0;
             border-radius: var(--radius-lg);
+            corner-shape: squircle;
         }
         .post-image-container {
             border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+            corner-shape: squircle;
         }
         .post-info {
             padding: 0.7rem 0.7rem 4rem;
@@ -957,12 +967,14 @@
     @media (max-width: 320px) {
         .post {
             margin: 0 0 0.3rem 0;
-            border-radius: 18px;
+            border-radius: var(--radius-lg);
+            corner-shape: squircle;
             min-width: unset;
             max-width: 100%;
         }
         .post-image-container {
-            border-radius: 18px 18px 0 0;
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+            corner-shape: squircle;
         }
         .post-info {
             padding: 0.5rem 0.5rem 4rem;

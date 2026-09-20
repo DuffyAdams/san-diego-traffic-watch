@@ -1,19 +1,19 @@
 <script>
-    import { fly } from "svelte/transition";
+    import { slide } from "../../utils/motion.js";
     import { toasts, removeToast } from "../../stores/appStore.js";
 </script>
 
 {#if $toasts.length > 0}
-    <div class="toast-container">
+    <div class="toast-container" role="status" aria-live="polite">
         {#each $toasts as toast (toast.id)}
             <div
                 class="toast toast-{toast.type}"
-                in:fly={{ y: -50, duration: 300 }}
-                out:fly={{ y: -50, duration: 200 }}
+                in:slide={{ duration: 280 }}
+                out:slide={{ duration: 200 }}
             >
                 <span class="toast-message">{toast.message}</span>
                 <button
-                    class="toast-close"
+                    class="toast-close" type="button" aria-label="Dismiss notification"
                     on:click={() => removeToast(toast.id)}>×</button
                 >
             </div>
@@ -39,6 +39,7 @@
         justify-content: space-between;
         padding: 1rem 1.25rem;
         border-radius: var(--radius-md);
+        corner-shape: squircle;
         font-size: 0.9rem;
         text-transform: uppercase;
         font-weight: bold;

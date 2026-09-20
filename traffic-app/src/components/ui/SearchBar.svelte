@@ -3,6 +3,7 @@
     import X from "lucide-svelte/icons/x";
     import { createEventDispatcher } from "svelte";
     import { t } from "../../utils/i18n.js";
+    import { slide } from "../../utils/motion.js";
 
     export let value = "";
     export let placeholder = t("search.placeholder");
@@ -66,7 +67,7 @@
             on:input={handleInput}
         />
         {#if value.length > 0}
-            <button class="clear-button" type="button" on:click={clearSearch} aria-label={t("search.clear")}>
+            <button class="clear-button" type="button" on:click={clearSearch} aria-label={t("search.clear")} in:slide={{ axis: "x", duration: 180 }}>
                 <X size={14} />
             </button>
         {/if}
@@ -84,6 +85,7 @@
         background: transparent;
         border: 1px solid transparent;
         border-radius: 13px;
+        corner-shape: squircle;
         padding: 0;
         margin: 0;
         transition: width .28s var(--ease-out), border-color .2s, box-shadow .2s, background .2s;
@@ -107,6 +109,7 @@
         padding: 0;
         border: 0;
         border-radius: 12px;
+        corner-shape: squircle;
         background: transparent;
         color: var(--text-muted, #a0aec0);
         display: flex;
@@ -171,6 +174,7 @@
         justify-content: center;
         padding: 0.25rem;
         border-radius: 9px;
+        corner-shape: squircle;
         transition: all 0.2s ease;
         margin-left: 0.5rem;
         flex: 0 0 auto;

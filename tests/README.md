@@ -12,6 +12,8 @@ This `tests/` workspace now contains two kinds of tests:
 - `specs/accessibility.spec.js`: keyboard smoke checks plus critical Axe violations
 - `specs/edge-cases.spec.js`: empty search states and incident API failure handling
 - `specs/release-readiness.spec.js`: console/network smoke checks and responsive layout sanity checks
+- `specs/performance-polish.spec.js`: shared timestamp timers, visibility-aware polling, filter races, and reduced motion
+- `frontend-performance.test.mjs`: refresh identity, ordering, local state, and cached formatting (`npm run test:unit`)
 - `reporters/defect-reporter.mjs`: writes JSON and Markdown defect summaries into `artifacts/defects/`
 
 ## Default mode
@@ -47,7 +49,10 @@ From this directory, run the browser suite:
 npm test
 npm run test:ui
 npm run test:api
+npm run test:unit
 ```
+
+Set `PLAYWRIGHT_CHANNEL=chrome` to use installed Google Chrome instead of bundled Chromium (the video helper still requires `npx playwright install ffmpeg`).
 
 ## Optional live-backend API smoke
 

@@ -14,8 +14,7 @@
     }
 </script>
 
-{#if events.length > 0}
-    <div class="ticker-wrapper">
+    <div class="ticker-wrapper" class:empty={events.length === 0} aria-hidden={events.length === 0}>
         <div class="ticker-label">
             <span class="blinking-dot"></span>
             LATEST
@@ -76,15 +75,20 @@
             </div>
         </div>
     </div>
-{/if}
 
 <style>
+    /* Empty sources keep the header and source tabs in the same position. */
+    .ticker-wrapper.empty {
+        visibility: hidden;
+    }
+
     .ticker-wrapper {
         display: flex;
         align-items: center;
         background: var(--bg-surface);
         border: 1px solid var(--border-color);
         border-radius: 16px;
+        corner-shape: squircle;
         margin-bottom: 0.8rem;
         overflow: hidden;
         height: 40px;

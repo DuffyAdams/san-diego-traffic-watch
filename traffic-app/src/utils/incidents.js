@@ -57,3 +57,40 @@ export function buildPostFromIncident(incident, existingPost = {}) {
         : existingPost.likedByUser ?? false,
   };
 }
+
+// Preserve unchanged object identities and local state during background refresh.
+export function reconcileIncidents(posts, incidents) {
+  const byKey = new Map(posts.map((post, index) => [post.compositeId, index]));
+  const merged = [...posts];
+  const additions = [];
+  let changed = false;
+
+  for (const incident of incidents) {
+    if (!incident?.incident_no || !incident.timestamp) continue;
+    const key = `${incident.incident_no}-${formatDateKey(incident.timestamp)}`;
+    const index = byKey.get(key);
+    const previous = index === undefined ? undefined : merged[index];
+    const next = buildPostFromIncident(incident, previous);
+    // An older poll must not undo an optimistic like while its write is pending.
+    if (previous?.liking) {
+      next.likes = previous.likes;
+      next.likedByUser = previous.likedByUser;
+    }
+    if (!previous) {
+      byKey.set(key, merged.length);
+      merged.push(next);
+      additions.push(next);
+      changed = true;
+    } else if (Object.keys(next).some((field) =>
+      Array.isArray(next[field])
+        ? JSON.stringify(next[field]) !== JSON.stringify(previous[field])
+        : next[field] !== previous[field],
+    )) {
+      merged[index] = next;
+      changed = true;
+    }
+  }
+  if (!changed) return { posts, additions };
+  if (additions.length) merged.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return { posts: merged, additions };
+}

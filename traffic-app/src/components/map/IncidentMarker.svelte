@@ -1,6 +1,6 @@
 <script>
     import { onMount } from "svelte";
-    import { fade, scale } from "svelte/transition";
+    import { fade, slide } from "../../utils/motion.js";
     import IncidentIcon from "../shared/IncidentIcon.svelte";
     import { activeMarkerId, mapPanTo } from "../../stores/appStore.js";
     import { t } from "../../utils/i18n.js";
@@ -150,7 +150,7 @@
         class="hover-card"
         class:show-below={showBelow}
         class:is-clicked={isClicked}
-        transition:scale={{ duration: 150, start: 0.95 }}
+        transition:slide={{ duration: 200 }}
         style="border-color: {sourceColor}4d;"
         on:click={toggleClick}
     >
@@ -352,6 +352,7 @@
         background: #080c12;
         border: 1px solid rgba(136, 170, 255, 0.3);
         border-radius: 6px;
+        corner-shape: squircle;
         padding: 10px;
         box-shadow:
             0 4px 12px rgba(0, 0, 0, 0.5),
@@ -488,6 +489,7 @@
         border: 1px solid rgba(255, 51, 51, 0.3);
         color: #ff5555;
         border-radius: 4px;
+        corner-shape: squircle;
         width: 20px;
         height: 20px;
         display: flex;
@@ -510,6 +512,7 @@
         font-weight: 900;
         border: 1px solid;
         border-radius: 4px;
+        corner-shape: squircle;
         padding: 1px 4px;
         line-height: 1;
         text-align: center;

@@ -1,5 +1,5 @@
 <script>
-    import { fly } from "svelte/transition";
+    import { slide } from "../../utils/motion.js";
     import { formatCommentTimestamp } from "../../utils/helpers.js";
     import { t } from "../../utils/i18n.js";
     import X from "lucide-svelte/icons/x";
@@ -32,8 +32,8 @@
 
 <div
     class="comments-overlay"
-    in:fly={{ y: 400, duration: 400, opacity: 1 }}
-    out:fly={{ y: 400, duration: 300, opacity: 1 }}
+    in:slide={{ duration: 280 }}
+    out:slide={{ duration: 200 }}
 >
     <button class="close-comments" type="button" on:click={handleClose} aria-label={t("actions.closeComments")}>
         <X size={20} />
@@ -95,7 +95,7 @@
 <style>
     .comments-overlay {
         position: absolute;
-        top: 50px;
+        bottom: 0;
         left: 0;
         width: 100%;
         height: calc(100% - 50px);
@@ -107,8 +107,8 @@
         padding: 1.2rem;
         z-index: 10;
         border-radius: 20px 20px 0 0;
+        corner-shape: squircle;
         box-sizing: border-box;
-        will-change: opacity;
         backface-visibility: hidden;
     }
 
@@ -129,6 +129,7 @@
         align-items: center;
         justify-content: center;
         border-radius: 10px;
+        corner-shape: squircle;
         padding: 0;
         transition: all 0.15s ease;
         outline: none;
@@ -177,6 +178,7 @@
         padding: 1rem 0;
         background-color: var(--bg-surface-elevated);
         border-radius: 14px;
+        corner-shape: squircle;
         opacity: 0.8;
         border: 1px solid var(--border-color);
     }
@@ -187,7 +189,6 @@
         margin-bottom: 0.8rem;
         animation: fadeIn 150ms ease-in forwards;
         opacity: 0;
-        will-change: transform, opacity;
     }
 
     .comment-header {
@@ -204,6 +205,7 @@
         background: var(--bg-surface-elevated);
         color: var(--accent-primary);
         border-radius: 9px;
+        corner-shape: squircle;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -243,6 +245,7 @@
         background-color: rgba(51, 102, 255, 0.05);
         padding: 0.6rem 0.8rem;
         border-radius: 4px 14px 14px 14px;
+        corner-shape: squircle;
         border: 1px solid var(--border-color);
         font-size: 0.9rem;
         line-height: 1.4;
@@ -263,6 +266,7 @@
         padding: 0.7rem 1rem;
         border: 1px solid var(--border-color);
         border-radius: 13px;
+        corner-shape: squircle;
         font-size: 0.9rem;
         background-color: var(--bg-surface-elevated);
         color: var(--text-main);
@@ -284,6 +288,7 @@
         color: var(--text-inverse);
         border: 1px solid transparent;
         border-radius: 13px;
+        corner-shape: squircle;
         padding: 0.7rem 1.2rem;
         font-size: 0.9rem;
         cursor: pointer;
@@ -304,6 +309,7 @@
         margin-top: 0.6rem;
         font-size: 0.85rem;
         border-radius: 12px;
+        corner-shape: squircle;
     }
 
     @keyframes fadeIn {

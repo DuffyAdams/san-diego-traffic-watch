@@ -22,12 +22,13 @@ const webServer = skipWebServer
       {
         command: "node ./support/mock-api-server.mjs",
         cwd: testsDir,
+        env: { ...process.env, PLAYWRIGHT_MOCK_API_PORT: new URL(apiBaseURL).port || "8787" },
         url: `${apiBaseURL}/health`,
         reuseExistingServer,
         timeout: 30_000,
       },
       {
-        command: "npm run dev -- --host 127.0.0.1 --port 4173",
+        command: `npm run dev -- --host 127.0.0.1 --port ${Number(new URL(frontendBaseURL).port || 4173)}`,
         cwd: appDir,
         env: {
           ...process.env,
@@ -71,6 +72,7 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
+        ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
       },
     },
   ],

@@ -1,7 +1,6 @@
 <script>
     import { createEventDispatcher, onMount, onDestroy } from "svelte";
     import BarChart3 from "lucide-svelte/icons/chart-no-axes-column-increasing";
-    import ChevronDown from "lucide-svelte/icons/chevron-down";
     import Eye from "lucide-svelte/icons/eye";
     import LayoutGrid from "lucide-svelte/icons/layout-grid";
     import LayoutList from "lucide-svelte/icons/layout-list";
@@ -107,37 +106,30 @@
                 >
                     {#if darkMode}<Sun size={18} />{:else}<Moon size={18} />{/if}
                 </button>
+                {#if activeSource !== "map"}
+                    <button
+                        class="control-toggle"
+                        class:is-active={showEventCounters}
+                        on:click={() => dispatch("toggleEventCounters")}
+                        type="button"
+                        aria-expanded={showEventCounters}
+                        aria-controls="incident-stats"
+                        aria-label={t("header.systemDiagnostics")}
+                        title={t("header.systemDiagnostics")}
+                    >
+                        <BarChart3 size={18} />
+                    </button>
+                {/if}
             </div>
         </div>
     </div>
 
-    {#if activeSource !== "map"}
-        <button
-            class="header-action-banner"
-            class:expanded={showEventCounters}
-            on:click={() => dispatch("toggleEventCounters")}
-            type="button"
-            aria-pressed={showEventCounters}
-            aria-label={t("header.systemDiagnostics")}
-        >
-            <span class="banner-icon"><BarChart3 size={19} /></span>
-            <span class="banner-text">
-                <strong>{t("header.systemDiagnostics")}</strong>
-            </span>
-            <span class="banner-state">
-                <span>{showEventCounters ? "Collapse stats" : "Expand stats"}</span>
-                <ChevronDown size={17} class="chevron" />
-            </span>
-        </button>
-    {/if}
 </header>
 
 <style>
     .header {
         display: flex;
         flex-direction: column;
-        gap: 0.65rem;
-        margin: 0.25rem 0 0;
     }
 
     .header-top {
@@ -146,18 +138,12 @@
         justify-content: space-between;
         gap: 0.75rem;
         padding: 0.62rem 0.75rem;
-        border: 1px solid var(--border-color);
-        border-radius: 18px;
-        background: var(--bg-surface);
-        box-shadow: var(--shadow-md);
     }
 
     .header-brand,
     .header-controls,
     .header-toggle-group,
-    .live-status,
-    .header-action-banner,
-    .banner-state {
+    .live-status {
         display: flex;
         align-items: center;
     }
@@ -230,6 +216,7 @@
         background: var(--bg-surface-elevated);
         border: 1px solid var(--border-color);
         border-radius: 12px;
+        corner-shape: squircle;
         box-shadow: var(--shadow-sm);
         cursor: pointer;
         transition: transform .25s var(--ease-out), color .2s, border-color .2s, background .2s;
@@ -240,85 +227,20 @@
         color: var(--accent-primary);
         border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-color));
         background: var(--primary-lightest);
-        transform: translateY(-2px);
     }
 
     .control-toggle:active { transform: scale(.96); }
 
     .mobile-view-toggle { display: none; }
 
-    .header-action-banner {
-        width: 100%;
-        gap: 0.62rem;
-        padding: 0.52rem 0.68rem;
-        color: var(--text-main);
-        text-align: left;
-        background: var(--bg-surface);
-        border: 1px solid var(--border-color);
-        border-radius: 15px;
-        box-shadow: var(--shadow-sm);
-        cursor: pointer;
-        transition:
-            transform .25s var(--ease-out),
-            border-color .2s,
-            border-radius .3s var(--ease-out),
-            background .2s,
-            box-shadow .2s;
-    }
-
-    .header-action-banner:hover {
-        transform: translateY(-2px);
-        border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
-        background: var(--bg-surface-elevated);
-    }
-
-    .header-action-banner.expanded {
-        border-radius: 15px 15px 0 0;
-        border-bottom-color: transparent;
-        background: var(--bg-surface);
-        box-shadow: none;
-        transform: none;
-    }
-
-    .header-action-banner.expanded:hover {
-        border-bottom-color: transparent;
-        background: var(--bg-surface);
-        transform: none;
-    }
-
-    .banner-icon {
-        width: 31px;
-        height: 31px;
-        display: grid;
-        place-items: center;
-        flex: 0 0 auto;
-        color: var(--accent-primary);
-        border-radius: 10px;
-        background: var(--primary-lightest);
-    }
-
-    .banner-text { flex: 1; display: flex; }
-    .banner-text strong { font-size: 0.84rem; font-weight: 700; }
-
-    .banner-state {
-        gap: .42rem;
-        color: var(--text-muted);
-        font-size: .76rem;
-        font-weight: 580;
-    }
-
-    :global(.chevron) { transition: transform .3s var(--ease-out); }
-    .expanded :global(.chevron) { transform: rotate(180deg); }
-
     @keyframes breathe {
         50% { transform: scale(.82); opacity: .72; }
     }
 
     @media (max-width: 720px) {
-        .header-top { padding: .58rem .65rem; border-radius: 16px; }
+        .header-top { padding: .58rem .65rem; }
         .live-status { display: none; }
         .header-controls { gap: .5rem; }
-        .banner-state span { display: none; }
     }
 
     @media (max-width: 768px) {
@@ -327,10 +249,10 @@
 
     @media (max-width: 440px) {
         .header-top { gap: .5rem; }
-        .header-brand { gap: .65rem; }
-        .brand-icon { width: 38px; height: 38px; }
-        .brand-titles h1 { font-size: 1.2rem; }
-        .control-toggle { width: 34px; height: 34px; border-radius: 11px; }
-        .header-toggle-group { gap: .35rem; }
+        .header-brand { gap: .4rem; }
+        .brand-icon { width: 30px; height: 30px; }
+        .brand-titles h1 { font-size: 1.05rem; line-height: 1.15; }
+        .control-toggle { width: 32px; height: 34px; border-radius: 11px; corner-shape: squircle; }
+        .header-toggle-group { gap: .25rem; }
     }
 </style>

@@ -80,10 +80,14 @@ const messages = {
       inactive: "Inactive",
       live: "Live",
       noData: "No data",
-      criticalLevel: "Critical level",
+      highActivity: "High activity",
+      insufficientHistory: "Building baseline",
+      historyNeeded: "At least 3 matching hours from prior weeks are needed to compare activity.",
+      activityComparison: ({ current, average, samples }) =>
+        `Last hour: ${formatNumber(current)} incidents · Usual: ${formatNumber(average, { maximumFractionDigits: 1 })} · Based on ${formatNumber(samples)} matching hours from the past 8 weeks.`,
       elevatedIncidents: "Elevated incidents",
       lightIncidents: "Light incidents",
-      nominal: "Nominal",
+      nominal: "Typical activity",
       error: "Error",
     },
     diagnostics: {
@@ -97,6 +101,11 @@ const messages = {
       month: "Month",
       year: "Year",
       activity24Hours: "24-hour activity",
+      current24Hours: "Last 24 hours",
+      previousWeek24Hours: "Same hours last week",
+      previousWeekUnavailable: "Last week unavailable",
+      hourlyComparison: ({ time, current, previous }) =>
+        `${time}: ${formatNumber(current)} incidents in the last 24 hours; ${formatNumber(previous)} in the same hour last week.`,
       activity7Days: "7-day activity",
       activity30Days: "30-day activity",
       yearlyActivity: "Yearly activity",
@@ -117,6 +126,7 @@ const messages = {
     },
     state: {
       loadingMap: "Loading map...",
+      mapUnavailable: "Map preview unavailable",
       noIncidentsTitle: "No incidents to display at the moment.",
       noIncidentsSubtitle: "Check back soon for updates.",
       noSearchTitle: "No incidents match your search.",
@@ -125,6 +135,13 @@ const messages = {
       loadIncidentsUnavailable: "Unable to load incidents at this time.",
     },
     share: {
+      title: "Share incident",
+      close: "Close share preview",
+      preparing: "Preparing card image…",
+      previewAlt: ({ location }) => `Incident card at ${location}`,
+      download: "Download image",
+      imageFailed: "Could not create the card image. You can still share the incident text and link.",
+      shareFailed: "Could not share the incident. Please try again.",
       incidentSummary: ({ description, location }) =>
         `${description} - Location: ${location}. Check out more traffic incidents at San Diego Traffic Watch.`,
     },
@@ -212,15 +229,26 @@ export function t(key, values = {}) {
   return interpolate(String(entry), values);
 }
 
+const formatters = new Map();
+
+function getFormatter(kind, options) {
+  const key = JSON.stringify([currentLocale, kind, options]);
+  if (!formatters.has(key)) {
+    if (formatters.size >= 64) formatters.delete(formatters.keys().next().value);
+    formatters.set(key, new Intl[kind](currentLocale, options));
+  }
+  return formatters.get(key);
+}
+
 export function formatDateTime(value, options = {}) {
   const date = toDate(value);
   if (!date) return "";
-  return new Intl.DateTimeFormat(currentLocale, options).format(date);
+  return getFormatter("DateTimeFormat", options).format(date);
 }
 
 export function formatNumber(value, options = {}) {
   const numericValue = Number(value ?? 0);
-  return new Intl.NumberFormat(currentLocale, options).format(
+  return getFormatter("NumberFormat", options).format(
     Number.isFinite(numericValue) ? numericValue : 0,
   );
 }
@@ -229,9 +257,9 @@ export function formatRelativeTimeFromNow(value, options = {}) {
   const date = toDate(value);
   if (!date) return t("fallback.recent");
 
-  const diffSeconds = Math.round((date.getTime() - Date.now()) / 1000);
+  const diffSeconds = Math.round((date.getTime() - (options.now ?? Date.now())) / 1000);
   const absSeconds = Math.abs(diffSeconds);
-  const formatter = new Intl.RelativeTimeFormat(currentLocale, {
+  const formatter = getFormatter("RelativeTimeFormat", {
     numeric: options.numeric || "auto",
     style: options.style || "short",
   });
@@ -260,7 +288,7 @@ export function formatDateKey(value) {
 }
 
 export function compareText(a, b) {
-  return new Intl.Collator(currentLocale, {
+  return getFormatter("Collator", {
     numeric: true,
     sensitivity: "base",
   }).compare(a ?? "", b ?? "");

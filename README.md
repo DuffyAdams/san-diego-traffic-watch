@@ -48,10 +48,17 @@ The current dark-mode UI is shown below using deterministic local incident data.
 - Geocoding: cached Nominatim and ArcGIS lookups in [backend/geocoding.py](backend/geocoding.py)
 - LLM summaries: OpenRouter-backed client in [backend/llm.py](backend/llm.py)
 
-## Performance Opportunities
+## Frontend Performance
+
+- Timestamps share one visibility-aware clock and reuse bounded caches of internationalization formatters.
+- Feed and map polling pause in hidden tabs, cancel obsolete requests, and refresh on return. Unchanged feed responses preserve card identities; changed responses preserve local interaction state.
+- Mini-maps activate near the viewport, retain their canvas during brief scroll excursions, and release offscreen or hidden-tab resources after a short grace period.
+- Card entrances use opacity and transforms instead of animating layout. Subtle source-selection, search, like, and overlay feedback respects reduced-motion and accessibility preferences, including JavaScript transitions and map camera movement.
+
+## Remaining Performance Opportunities
 
 1. **Virtualize the incident feed and recycle mini-map instances.** Cursor pagination limits each request, but every loaded card remains mounted. Rendering only the visible rows would reduce DOM size, layout work, memory use, and the number of active MapLibre canvases during long sessions.
-2. **Make live refreshes visibility-aware and conditional.** Pause the 20-second refresh loop while the tab is hidden, cancel superseded requests, and add ETag/`If-None-Match` responses or a small server-sent-events delta stream. This would reduce repeated JSON transfers, SQLite reads, and background mobile wakeups.
+2. **Make live refreshes conditional.** Add ETag/`If-None-Match` responses or a small server-sent-events delta stream to reduce repeated JSON transfers and SQLite reads beyond the existing visibility-aware polling.
 3. **Precompute statistics rollups during scrape cycles.** Store per-source hourly and daily counters as incidents are updated, then serve `/api/incident_stats` from those rollups instead of repeatedly grouping the growing incidents table. This would keep dashboard response times stable as historical data accumulates.
 
 ## Requirements
@@ -102,7 +109,7 @@ The Flask app serves on `http://127.0.0.1:5002` if you set `TRAFFIC_APP_HOST=127
 
 ### Frontend dev mode
 
-Run the Flask backend separately, then start Vite from `traffic-app/`:
+Start Vite from `traffic-app/`. Local development includes sample incidents, statistics, maps, likes, and comments without running Python:
 
 ```bash
 cd /home/ubuntu/projects/san-diego-traffic-watch/traffic-app
@@ -111,12 +118,17 @@ npm run dev
 
 Useful frontend scripts:
 
-- `npm run dev`: Vite dev server on port `5173`
+- `npm run dev`: Vite dev server on port `5173` with mock data
+- `npm run dev:mock`: explicitly enable mock data
+- `npm run dev:live`: connect to a separately running Python backend
+- `npm run dev:full`: start Python and Vite together with backend data
 - `npm run dev:local`: Vite bound to `127.0.0.1`
 - `npm run dev:proxy`: Vite proxied to `https://sandiegotraffic.com`
 - `npm run dev:backend`: starts the backend in `TESTMODE`
 - `npm run build`: production build to `traffic-app/dist`
 - `npm run preview`: preview the production bundle
+
+Mock changes are stored in memory and reset when Vite restarts. The app displays a demo notice while using sample data. Setting `VITE_PROD_URL` switches `npm run dev` to that backend; production builds never enable the mock API.
 
 ### Production-style local run
 

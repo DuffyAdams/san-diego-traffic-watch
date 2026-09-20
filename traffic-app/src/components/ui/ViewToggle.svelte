@@ -1,5 +1,7 @@
 <script>
-    import { fade } from "svelte/transition";
+    import { fade } from "../../utils/motion.js";
+    import ChevronLeft from "lucide-svelte/icons/chevron-left";
+    import ChevronRight from "lucide-svelte/icons/chevron-right";
     import LayoutGrid from "lucide-svelte/icons/layout-grid";
     import LayoutList from "lucide-svelte/icons/layout-list";
     import { createEventDispatcher } from "svelte";
@@ -73,6 +75,7 @@
         color: var(--text-main);
         padding: 0;
         border-radius: 24px;
+        corner-shape: squircle;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -88,12 +91,12 @@
 
     .swipe-indicator.left {
         right: 20px;
-        animation: slideInRight 0.3s forwards;
+        animation: slideInRight 0.3s var(--ease-out) forwards;
     }
 
     .swipe-indicator.right {
         left: 20px;
-        animation: slideInLeft 0.3s forwards;
+        animation: slideInLeft 0.3s var(--ease-out) forwards;
     }
 
     .swipe-content {
@@ -110,7 +113,6 @@
         align-items: center;
         justify-content: center;
         color: rgba(255, 255, 255, 0.95);
-        animation: bounce 0.6s ease-in-out;
     }
 
     .swipe-label {
@@ -130,30 +132,6 @@
         margin-top: -0.25rem;
     }
 
-    @keyframes bounce {
-        0%,
-        100% {
-            transform: translateX(0);
-        }
-        50% {
-            transform: translateX(-6px);
-        }
-    }
-
-    .swipe-indicator.right .swipe-icon {
-        animation: bounceRight 0.6s ease-in-out;
-    }
-
-    @keyframes bounceRight {
-        0%,
-        100% {
-            transform: translateX(0);
-        }
-        50% {
-            transform: translateX(6px);
-        }
-    }
-
     .view-toggle {
         display: inline-grid;
         grid-template-columns: repeat(2, auto);
@@ -162,6 +140,7 @@
         background: var(--bg-surface-elevated);
         border: 1px solid var(--border-color);
         border-radius: 14px;
+        corner-shape: squircle;
         box-shadow: var(--shadow-sm);
     }
 
@@ -174,6 +153,7 @@
         gap: 0.38rem;
         border: 1px solid transparent;
         border-radius: 10px;
+        corner-shape: squircle;
         background: transparent;
         color: var(--text-muted);
         font: inherit;
@@ -203,22 +183,22 @@
     @keyframes slideInRight {
         from {
             opacity: 0;
-            transform: translate(30px, -50%) scale(0.9);
+            transform: translate(16px, -50%);
         }
         to {
             opacity: 0.95;
-            transform: translate(0, -50%) scale(1);
+            transform: translate(0, -50%);
         }
     }
 
     @keyframes slideInLeft {
         from {
             opacity: 0;
-            transform: translate(-30px, -50%) scale(0.9);
+            transform: translate(-16px, -50%);
         }
         to {
             opacity: 0.95;
-            transform: translate(0, -50%) scale(1);
+            transform: translate(0, -50%);
         }
     }
 

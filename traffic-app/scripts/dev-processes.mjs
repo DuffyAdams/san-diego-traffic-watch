@@ -32,7 +32,7 @@ start(pythonCommand, ["-m", "backend"], {
 
 if (!backendOnly) {
   const viteCli = path.join(frontendDir, "node_modules", "vite", "bin", "vite.js");
-  start(process.execPath, [viteCli], { cwd: frontendDir, env: process.env });
+  start(process.execPath, [viteCli, "--mode", "backend"], { cwd: frontendDir, env: process.env });
 }
 
 process.on("SIGINT", () => {

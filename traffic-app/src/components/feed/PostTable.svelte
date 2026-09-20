@@ -1,6 +1,6 @@
 <script>
     import { createEventDispatcher } from "svelte";
-    import { slide } from "svelte/transition";
+    import { slide } from "../../utils/motion.js";
     import {
         formatTimeOnly,
         truncateDescription,
@@ -19,6 +19,7 @@
     import { t } from "../../utils/i18n.js";
 
     export let posts = [];
+    export let animateFeedEntrance = true;
     export let expandedPostId = null;
     export let searchQuery = "";
     export let onSubmitComment = () => {};
@@ -71,7 +72,8 @@
 
     function handleShare(e, post) {
         e.stopPropagation();
-        dispatch("share", { post });
+        const details = e.currentTarget.closest(".expanded-details");
+        dispatch("share", { post, elements: [details.previousElementSibling, details] });
     }
 
     function handleToggleDescription(e, postId) {
@@ -118,7 +120,7 @@
             on:click={() => handleRowClick(post)}
             on:keydown={(e) =>
                 (e.key === "Enter" || e.key === " ") && handleRowClick(post)}
-            in:slide={{ delay: Math.min(i * 30, 300), duration: 150 }}
+            in:slide={{ delay: animateFeedEntrance ? Math.min(i * 15, 90) : 0, duration: animateFeedEntrance ? 180 : 0 }}
         >
             <div class="table-cell type-cell">
                 <span
@@ -278,6 +280,7 @@
         min-width: 100%;
         background: var(--bg-surface);
         border-radius: var(--radius-lg);
+        corner-shape: squircle;
         border: 1px solid var(--border-color);
         overflow: hidden;
         margin-bottom: 1.5rem;
@@ -424,6 +427,7 @@
         max-width: 300px;
         height: 200px;
         border-radius: 18px;
+        corner-shape: squircle;
         overflow: hidden;
     }
 
@@ -432,6 +436,7 @@
         height: 200px;
         object-fit: cover;
         border-radius: 18px;
+        corner-shape: squircle;
     }
 
     .expanded-info {
@@ -458,6 +463,7 @@
         padding: 0.85rem;
         border: 1px solid var(--border-color);
         border-radius: 14px;
+        corner-shape: squircle;
     }
 
     .description-text {
@@ -485,6 +491,7 @@
         transition: all 0.15s ease;
         text-transform: uppercase;
         border-radius: 9px;
+        corner-shape: squircle;
         vertical-align: middle;
     }
 
@@ -507,6 +514,7 @@
         font-weight: 500;
         padding: 0.45rem 0;
         border-radius: 12px;
+        corner-shape: squircle;
         cursor: pointer;
         transition: all 0.15s;
         flex: 1;
@@ -519,29 +527,20 @@
         color: var(--accent-primary);
     }
 
-    @keyframes sharpFlash {
-        0% {
-            background-color: var(--accent-secondary);
-            color: #fff;
-            border-color: var(--accent-secondary);
-        }
-        50% {
-            background-color: rgba(255, 51, 51, 0.05);
-            color: var(--accent-secondary);
-            border-color: rgba(255, 51, 51, 0.3);
-        }
-        100% {
-            background-color: rgba(255, 51, 51, 0.15);
-            color: var(--accent-secondary);
-            border-color: var(--accent-secondary);
-        }
-    }
-
     .like-button.liked {
         color: var(--accent-secondary);
         border-color: var(--accent-secondary);
-        animation: sharpFlash 0.3s steps(2);
         background-color: rgba(255, 51, 51, 0.15);
+    }
+
+    .like-button.liked .button-icon {
+        display: inline-flex;
+        animation: like-confirm 260ms var(--ease-out);
+    }
+
+    @keyframes like-confirm {
+        from { transform: translateY(3px); }
+        to { transform: translateY(0); }
     }
 
     .like-button.liked:hover {

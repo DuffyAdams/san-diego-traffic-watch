@@ -1,6 +1,6 @@
 <script>
     import { onMount, createEventDispatcher } from "svelte";
-    import { slide } from "svelte/transition";
+    import { slide } from "../../utils/motion.js";
 
     import Calendar from "lucide-svelte/icons/calendar";
     import Clock from "lucide-svelte/icons/clock";
@@ -11,6 +11,8 @@
     import IncidentIcon from "../shared/IncidentIcon.svelte";
     import { formatDateTime, formatNumber, t } from "../../utils/i18n.js";
 
+    import { classifyActivity } from "../../utils/activityStatus.js";
+
     const dispatch = createEventDispatcher();
     export let eventsToday = 0;
     export let eventsLastHour = 0;
@@ -18,11 +20,13 @@
     export let totalIncidents = 0;
     export let timeFilter = "day";
     export let hourlyData = [];
+    export let previousWeekHourlyData = null;
     export let incidentsByType = {};
     export let topLocations = {};
     export let selectedTypes = new Set();
     export let selectedLocations = new Set();
-    export let historicalCurrentHourAverage = 0;
+    export let historicalCurrentHourAverage = null;
+    export let historicalHourSampleCount = 0;
     export let referenceTime = "";
 
     function parseReferenceTime(value) {
@@ -45,74 +49,43 @@
                 ? 30
                 : 12;
     $: chartData = normalizeChartData(hourlyData, expectedBucketCount);
+    // An absent or incomplete comparison is unknown, not zero activity.
+    $: comparisonData = timeFilter === "day" &&
+        Array.isArray(previousWeekHourlyData) &&
+        previousWeekHourlyData.length === 24 &&
+        previousWeekHourlyData.every(value => Number.isFinite(value) && value >= 0)
+            ? previousWeekHourlyData : [];
+    $: hasComparison = comparisonData.length === 24;
     $: typeEntries = Object.entries(incidentsByType);
     $: locationEntries = Object.entries(topLocations);
     $: maxTypeCount = Math.max(...typeEntries.map(([, count]) => count), 1);
     $: maxLocationCount = Math.max(...locationEntries.map(([, count]) => count), 1);
 
     // Div-based chart computations
-    $: maxValue = chartData && chartData.length ? Math.max(...chartData) : 0;
+    $: maxValue = Math.max(0, ...chartData, ...comparisonData);
     $: yMax = Math.max(maxValue * 1.15, 10);
 
-    // Define spike relative to historical average for THIS exact hour/day-of-week
-    // Using a floor of 2 to avoid dividing zeroes into infinity
-    $: spikeThreshold = Math.max(historicalCurrentHourAverage * 1.5, 2);
-
-    // Determine the current traffic status relative to historical average
-    $: currentTrafficStatus = (() => {
-        // Disable status alerts for long-term historical views
-        if (timeFilter === "month" || timeFilter === "year") {
-            return {
-                text: "",
-                color: "transparent",
-                isLive: false,
-                hidden: true,
-            };
-        }
-
-        if (!chartData || chartData.length === 0)
-            return {
-                text: t("status.noData"),
-                color: "var(--text-muted)",
-                isLive: false,
-                hidden: false,
-            };
-        const currentValue = chartData[chartData.length - 1];
-
-        if (
-            currentValue >= spikeThreshold &&
-            currentValue === maxValue &&
-            currentValue > 0
-        ) {
-            return {
-                text: t("status.criticalLevel"),
-                color: "#ef4444",
-                isLive: true,
-                hidden: false,
-            };
-        } else if (currentValue > historicalCurrentHourAverage * 1.2) {
-            return {
-                text: t("status.elevatedIncidents"),
-                color: "#f59e0b",
-                isLive: false,
-                hidden: false,
-            };
-        } else if (currentValue < historicalCurrentHourAverage * 0.8) {
-            return {
-                text: t("status.lightIncidents"),
-                color: "#64748b",
-                isLive: false,
-                hidden: false,
-            };
-        } else {
-            return {
-                text: t("status.nominal"),
-                color: "#10b981",
-                isLive: false,
-                hidden: false,
-            };
-        }
-    })();
+    $: activityStatus = classifyActivity({
+        current: eventsLastHour,
+        average: historicalCurrentHourAverage,
+        sampleCount: historicalHourSampleCount,
+        hasData: Array.isArray(hourlyData) && hourlyData.length > 0,
+    });
+    $: statusColor = {
+        highActivity: "#ef4444",
+        elevatedIncidents: "#f59e0b",
+        lightIncidents: "var(--text-muted)",
+        nominal: "#10b981",
+    }[activityStatus] || "var(--text-muted)";
+    $: statusExplanation = activityStatus === "noData"
+        ? t("diagnostics.noActivityData")
+        : activityStatus === "insufficientHistory"
+          ? t("status.historyNeeded")
+          : t("status.activityComparison", {
+                current: eventsLastHour,
+                average: historicalCurrentHourAverage,
+                samples: historicalHourSampleCount,
+            });
 
     // Update currentTime every minute
     onMount(() => {
@@ -175,6 +148,7 @@
 
     function normalizeChartData(values, expectedLength) {
         const data = Array.isArray(values) ? values.map(Number) : [];
+        if (data.length === 0) return [];
         if (data.length === expectedLength) return data;
         if (data.length > expectedLength) return data.slice(data.length - expectedLength);
         return [...Array(expectedLength - data.length).fill(0), ...data];
@@ -226,8 +200,8 @@
             </div>
         </div>
         <div class="time-period-section">
-            <span class="section-label">{t("diagnostics.timePeriod")}</span>
-            <div class="time-buttons">
+            <span class="section-label" id="stats-time-period">{t("diagnostics.timePeriod")}</span>
+            <div class="time-buttons" role="group" aria-labelledby="stats-time-period">
                 <button
                     class="time-button"
                     class:active={timeFilter === "day"}
@@ -256,54 +230,84 @@
     <div class="activity-chart-section">
         <div class="activity-header">
             <span class="section-title">{sectionTitle}</span>
-            {#if !currentTrafficStatus.hidden}
-                <div class="status-indicator">
-                    {#if currentTrafficStatus.isLive}
-                        <span class="live-badge" transition:slide>{t("status.live")}</span>
-                    {:else}
-                        <span
-                            class="status-dot"
-                            style="background-color: {currentTrafficStatus.color};"
-                        ></span>
-                    {/if}
-                    <span
-                        class="status-text"
-                        style="color: {currentTrafficStatus.color};"
-                        >{currentTrafficStatus.text}</span
-                    >
+            {#if timeFilter === "day"}
+                <div class="status-indicator" role="status">
+                    <span class="status-dot" style="background-color: {statusColor};"></span>
+                    <span class="status-text" style="color: {statusColor};"
+                        >{t(`status.${activityStatus}`)}</span>
                 </div>
             {/if}
         </div>
+        {#if timeFilter === "day"}
+            <p class="activity-context">{statusExplanation}</p>
+            {#if chartData.length > 0}
+                <div class="chart-legend">
+                    <span><i class="legend-swatch current-swatch"></i>{t("diagnostics.current24Hours")}</span>
+                    <span>
+                        {#if hasComparison}<i class="legend-swatch previous-swatch"></i>{/if}
+                        {t(hasComparison ? "diagnostics.previousWeek24Hours" : "diagnostics.previousWeekUnavailable")}
+                    </span>
+                </div>
+            {/if}
+        {/if}
 
         <div class="custom-chart-container">
             {#if chartData && chartData.length > 0}
-                <div class="chart-bars">
+                <div class="chart-bars" class:with-comparison={hasComparison}>
                     {#each chartData as value, i (`${timeFilter}-${i}`)}
                         <!-- svelte-ignore a11y-no-static-element-interactions -->
                         <div
                             class="bar-wrapper"
+                            role="img"
+                            aria-label={hasComparison
+                                ? t("diagnostics.hourlyComparison", { time: chartLabels[i], current: value, previous: comparisonData[i] })
+                                : `${chartLabels[i]}: ${t("diagnostics.incidentsCount", { count: value })}`}
                             on:mouseenter={() => (hoveredIndex = i)}
                             on:mouseleave={() => (hoveredIndex = null)}
                         >
                             <div class="bar-container">
+                                {#if hasComparison}
+                                    <div
+                                        class="comparison-bar"
+                                        class:empty={comparisonData[i] === 0}
+                                        style="height: {(comparisonData[i] / yMax) * 100}%"
+                                    ></div>
+                                {/if}
                                 <div
                                     class="bar"
-                                    class:spike={timeFilter !== "month" &&
-                                        timeFilter !== "year" &&
-                                        value >= spikeThreshold &&
-                                        value === maxValue &&
-                                        value > 0 &&
-                                        i === hourlyData.length - 1}
+                                    class:spike={timeFilter === "day" && activityStatus === "highActivity" && i === chartData.length - 1}
                                     style="height: {(value / yMax) * 100}%"
                                 >
-                                    {#if timeFilter !== "month" && timeFilter !== "year" && value >= spikeThreshold && value === maxValue && value > 0 && i === hourlyData.length - 1}
+                                    {#if timeFilter === "day" && activityStatus === "highActivity" && i === chartData.length - 1}
                                         <div class="spike-glow"></div>
                                         <div class="spike-halo"></div>
+                                    {/if}
+                                    {#if hoveredIndex === i}
+                                        <div
+                                            class="chart-tooltip"
+                                            transition:slide={{ duration: 150 }}
+                                        >
+                                            <div class="tooltip-title">
+                                                {chartLabels[i]}
+                                            </div>
+                                            <div class="tooltip-value">
+                                                {#if hasComparison}{t("diagnostics.current24Hours")}: {/if}
+                                                {t("diagnostics.incidentsCount", { count: value })}
+                                            </div>
+                                            {#if hasComparison}
+                                                <div class="tooltip-value">
+                                                    {t("diagnostics.previousWeek24Hours")}: {t("diagnostics.incidentsCount", { count: comparisonData[i] })}
+                                                </div>
+                                            {/if}
+                                        </div>
                                     {/if}
                                 </div>
                             </div>
                             <!-- X-axis labels (render a subset depending on timeFilter) -->
-                            <div class="x-label-container">
+                            <div
+                                class="x-label-container"
+                                class:mobile-hide-label={i !== chartLabels.length - 1 && ((timeFilter === "day" && i % 6 !== 0) || (timeFilter === "year" && i % 3 !== 0))}
+                            >
                                 {#if timeFilter === "day"}
                                     {#if i % 3 === 0 || i === chartLabels.length - 1}
                                         <span class="x-label">{chartLabels[i]}</span>
@@ -325,20 +329,6 @@
                                     >
                                 {/if}
                             </div>
-
-                            {#if hoveredIndex === i}
-                                <div
-                                    class="chart-tooltip"
-                                    transition:slide={{ duration: 150 }}
-                                >
-                                    <div class="tooltip-title">
-                                        {chartLabels[i]}
-                                    </div>
-                                    <div class="tooltip-value">
-                                        {t("diagnostics.incidentsCount", { count: value })}
-                                    </div>
-                                </div>
-                            {/if}
                         </div>
                     {/each}
                 </div>
@@ -432,15 +422,8 @@
         display: flex;
         flex-direction: column;
         gap: 0.8rem;
-        margin-bottom: 1rem;
         padding: 0.9rem;
-        background: var(--bg-surface);
-        border: 1px solid var(--border-color);
-        border-top: 0;
-        border-radius: 0 0 var(--radius-xl) var(--radius-xl);
         color: var(--text-main);
-        overflow: visible;
-        box-shadow: var(--shadow-md);
     }
 
     .top-row {
@@ -460,6 +443,7 @@
         background: var(--bg-surface-elevated);
         border: 1px solid var(--border-color);
         border-radius: 15px;
+        corner-shape: squircle;
         text-align: left;
         padding: 0.6rem 0.7rem;
         display: grid;
@@ -517,6 +501,7 @@
         background: var(--bg-surface-elevated);
         border: 1px solid var(--border-color);
         border-radius: 15px;
+        corner-shape: squircle;
         min-width: 270px;
         gap: 0.35rem;
     }
@@ -534,6 +519,7 @@
         background: var(--bg-surface-elevated);
         padding: 0.2rem;
         border-radius: 11px;
+        corner-shape: squircle;
         border: 1px solid var(--border-color);
     }
 
@@ -542,6 +528,7 @@
         background: transparent;
         border: 1px solid transparent;
         border-radius: 8px;
+        corner-shape: squircle;
         color: var(--text-muted);
         font-size: 0.75rem;
         font-weight: 650;
@@ -576,6 +563,7 @@
         background: var(--bg-surface);
         border: 1px solid var(--border-color);
         border-radius: 16px;
+        corner-shape: squircle;
         display: flex;
         flex-direction: column;
         gap: 0.5rem;
@@ -585,6 +573,8 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
         border-bottom: 1px solid var(--border-color);
         padding-bottom: 0.4rem;
     }
@@ -620,29 +610,11 @@
         text-transform: uppercase;
     }
 
-    .live-badge {
-        background-color: #ef4444;
-        color: white;
-        display: inline-flex;
-        align-items: center;
-        font-weight: bold;
-        font-size: 0.7rem;
-        padding: 0.15rem 0.4rem;
-        border-radius: 999px;
-        letter-spacing: 0.05em;
-        box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
-        animation: subtlePulseBadge 1.5s infinite alternate;
-    }
-
-    @keyframes subtlePulseBadge {
-        0% {
-            box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
-            opacity: 0.8;
-        }
-        100% {
-            box-shadow: 0 0 12px rgba(239, 68, 68, 0.8);
-            opacity: 1;
-        }
+    .activity-context {
+        margin: 0.4rem 0 0.6rem;
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        line-height: 1.5;
     }
 
     .custom-chart-container {
@@ -653,6 +625,56 @@
         margin-bottom: 22px;
         display: flex;
         align-items: flex-end;
+    }
+
+    .chart-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem 0.75rem;
+        color: var(--text-muted);
+        font-size: 0.65rem;
+        line-height: 1.3;
+    }
+
+    .chart-legend > span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    .legend-swatch {
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        flex-shrink: 0;
+    }
+
+    .current-swatch {
+        background: var(--accent-primary);
+    }
+
+    .previous-swatch,
+    .comparison-bar {
+        background: color-mix(in srgb, var(--text-muted) 28%, transparent);
+        border: 1px solid color-mix(in srgb, var(--text-muted) 65%, transparent);
+    }
+
+    .comparison-bar {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        border-radius: 4px 4px 0 0;
+        pointer-events: none;
+        transition: height 0.4s var(--ease-out);
+    }
+
+    .comparison-bar.empty {
+        visibility: hidden;
+    }
+
+    .with-comparison .bar {
+        width: 55%;
+        margin-inline: auto;
     }
 
     .chart-bars {
@@ -684,10 +706,15 @@
         border-bottom: 2px solid rgba(140, 155, 186, 0.3);
     }
 
+    .bar-wrapper:hover {
+        z-index: 10;
+    }
+
     .bar {
         width: 100%;
         background-color: var(--accent-primary);
         border-radius: 6px 6px 2px 2px;
+        corner-shape: squircle;
         transition:
             height 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275),
             background-color 0.3s;
@@ -726,6 +753,7 @@
             transparent 82%
         );
         border-radius: 10px 10px 4px 4px;
+        corner-shape: squircle;
         filter: blur(7px);
         pointer-events: none;
         animation: glowPulse 2.8s ease-in-out infinite alternate;
@@ -796,6 +824,7 @@
         border: 1px solid rgba(51, 102, 255, 0.3);
         padding: 6px 10px;
         border-radius: 12px;
+        corner-shape: squircle;
         z-index: 10;
         pointer-events: none;
         white-space: nowrap;
@@ -835,6 +864,7 @@
         background: var(--bg-surface);
         border: 1px solid var(--border-color);
         border-radius: 16px;
+        corner-shape: squircle;
         padding: 0.7rem;
         min-width: 0;
     }
@@ -860,6 +890,7 @@
         border: 1px solid var(--border-color);
         color: var(--text-muted);
         border-radius: 8px;
+        corner-shape: squircle;
         padding: 5px;
         cursor: pointer;
         display: flex;
@@ -912,6 +943,7 @@
         background: var(--hover-bg);
         border: none;
         border-radius: 10px;
+        corner-shape: squircle;
         cursor: pointer;
         transition: all 0.2s ease;
         min-height: 34px;
@@ -1017,163 +1049,194 @@
     }
 
     @media (max-width: 768px) {
-        .top-row {
-            flex-direction: column;
-            gap: 0.55rem;
-        }
-        .stats-grid {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 0.4rem;
-        }
-        .stat-card {
-            padding: 0.5rem 0.55rem;
-            grid-template-columns: 22px minmax(0, 1fr);
-            column-gap: 0.35rem;
-            min-height: 52px;
-        }
-        .event-counters {
-            padding: 0.75rem;
-            border-radius: 0 0 16px 16px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        }
-        .time-period-section {
-            flex-direction: row;
-            justify-content: space-between;
-            padding: 0.5rem;
-            align-items: center;
-            border-radius: 14px;
-        }
-        .time-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            width: auto;
-            gap: 0.25rem;
-        }
-        .time-button {
-            padding: 0.35rem 0.6rem;
-            font-size: 0.72rem;
-        }
-        .incident-breakdown-grid {
-            grid-template-columns: 1fr;
-        }
-        .breakdown-list {
-            max-height: 190px;
-        }
-        .breakdown-item {
-            min-height: 34px;
-            padding: 0.4rem 0.55rem;
-        }
-        .event-counters {
-            overflow: hidden;
-        }
-        .breakdown-card {
-            overflow: hidden;
-        }
-    }
-
-    @media (max-width: 480px) {
         .event-counters {
             padding: 0.65rem;
             gap: 0.6rem;
-            border-radius: 0 0 14px 14px;
-            margin-bottom: 0.75rem;
         }
-        .stats-grid {
-            grid-template-columns: repeat(2, 1fr);
+
+        .top-row {
+            flex-direction: column;
             gap: 0.4rem;
         }
+
+        .stats-grid {
+            gap: 0.35rem;
+        }
+
         .stat-card {
-            padding: 0.5rem 0.6rem;
-            min-height: 52px;
+            grid-template-columns: minmax(0, 1fr);
+            justify-items: center;
+            gap: 0.2rem;
+            padding: 0.5rem 0.2rem;
+            min-height: 54px;
             border-radius: 11px;
+            text-align: center;
         }
-        .stat-value {
-            font-size: 1.2rem;
-        }
+
         .stat-icon {
-            font-size: 1rem;
+            display: none;
         }
+
+        .stat-value {
+            font-size: clamp(1rem, 4.5vw, 1.3rem);
+            overflow-wrap: anywhere;
+        }
+
         .stat-label {
-            font-size: 0.62rem;
+            font-size: 0.68rem;
+            max-width: 100%;
         }
+
         .time-period-section {
-            flex-direction: column;
-            padding: 0.5rem;
-            border-radius: 12px;
+            min-width: 0;
+            padding: 0;
+            border: 0;
+            background: transparent;
         }
+
+        /* Keep the group label available to assistive technology. */
         .section-label {
-            font-size: 0.7rem;
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+            white-space: nowrap;
         }
+
+        .time-buttons {
+            width: 100%;
+            gap: 0.2rem;
+        }
+
         .time-button {
             flex: 1 1 0;
             min-width: 0;
-            padding: 0.35rem 0.25rem;
-            font-size: 0.68rem;
-        }
-        .time-buttons {
-            flex-wrap: nowrap;
-            width: 100%;
-        }
-        .activity-chart-section {
-            padding: 0.65rem;
-            border-radius: 12px;
-        }
-        .section-title {
-            font-size: 0.9rem;
-        }
-        .breakdown-card {
-            padding: 0.65rem;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        .breakdown-list {
-            max-height: 180px;
-        }
-        .breakdown-item {
-            padding: 0.4rem 0.5rem;
-            min-height: 34px;
+            min-height: 44px;
+            padding: 0.25rem;
+            font-size: 0.75rem;
         }
 
-        @media (max-width: 360px) {
-            .event-counters {
-                padding: 0.55rem;
-                gap: 0.5rem;
-                border-radius: 0 0 12px 12px;
-            }
-            .stats-grid {
-                gap: 0.3rem;
-            }
-            .stat-card {
-                padding: 0.45rem 0.5rem;
-                min-height: 48px;
-            }
-            .stat-value {
-                font-size: 1.1rem;
-            }
-            .stat-icon {
-                font-size: 1rem;
-            }
-            .stat-label {
-                font-size: 0.6rem;
-            }
-            .time-button {
-                padding: 0.35rem 0.6rem;
-                font-size: 0.7rem;
-            }
-            .breakdown-list {
-                max-height: 165px;
-            }
-            .breakdown-item {
-                padding: 0.35rem 0.45rem;
-                min-height: 32px;
-            }
-            .breakdown-name {
-                font-size: 0.85rem;
-            }
-            .breakdown-count {
-                font-size: 0.8rem;
-            }
+        .activity-chart-section {
+            padding: 0.6rem;
+            gap: 0.35rem;
+            border-radius: 12px;
+        }
+
+        .activity-header {
+            gap: 0.35rem;
+            padding-bottom: 0;
+            border: 0;
+        }
+
+        .section-title {
+            font-size: 0.85rem;
+        }
+
+        .status-indicator {
+            gap: 0.25rem;
+            padding: 0.2rem 0.35rem;
+        }
+
+        .status-text {
+            font-size: 0.6rem;
+            letter-spacing: 0.01em;
+        }
+
+        .activity-context {
+            margin: 0;
+            font-size: 0.7rem;
+            line-height: 1.4;
+        }
+
+        .custom-chart-container {
+            height: 72px;
+            margin-bottom: 20px;
+        }
+
+        .chart-bars {
+            gap: 3px;
+        }
+
+        .mobile-hide-label {
+            visibility: hidden;
+        }
+
+        .incident-breakdown-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.5rem;
+        }
+
+        .breakdown-card {
+            padding: 0.5rem;
+            border-radius: 12px;
+        }
+
+        .breakdown-header {
+            min-height: 28px;
+            gap: 0.2rem;
+            padding-bottom: 0.25rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .breakdown-title-section {
+            gap: 0.25rem;
+            min-width: 0;
+        }
+
+        .breakdown-title {
+            font-size: 0.75rem;
+            line-height: 1.2;
+        }
+
+        .breakdown-icon {
+            flex-shrink: 0;
+            width: 16px;
+            height: 16px;
+        }
+
+        .breakdown-list {
+            max-height: 184px;
+            gap: 0.25rem;
+            padding-right: 0;
+            scrollbar-width: thin;
+        }
+
+        .breakdown-list::-webkit-scrollbar {
+            display: block;
+            width: 3px;
+        }
+
+        .breakdown-item {
+            flex-shrink: 0;
+            min-height: 44px;
+            padding: 0.35rem 0.4rem;
+        }
+
+        .breakdown-item > .breakdown-icon {
+            display: none;
+        }
+
+        .breakdown-name {
+            font-size: 0.72rem;
+            line-height: 1.25;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            margin-right: 0.3rem;
+        }
+
+        .breakdown-count {
+            flex-shrink: 0;
+            padding: 0.08rem 0.3rem;
+            font-size: 0.68rem;
+        }
+
+        .reset-button {
+            flex-shrink: 0;
+            min-width: 28px;
+            min-height: 28px;
         }
     }
 </style>

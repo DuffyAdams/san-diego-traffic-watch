@@ -11,11 +11,19 @@ npm run build
 npm run preview
 ```
 
-The dev server proxies `/api` and `/maps` to `http://127.0.0.1:5002` by default. Set `VITE_PROD_URL` to use another backend.
+`npm run dev` serves 24 sample incidents directly from Vite, so no Python server is needed. Mock mode supports source and incident filters, pagination, maps, statistics, likes, and comments. A demo notice identifies the sample data. Changes stay in memory until Vite restarts (or you send `POST /__reset`).
+
+- `npm run dev:mock`: explicitly use mock data, even when `VITE_PROD_URL` is set.
+- `npm run dev:live`: proxy `/api` and `/maps` to the Python backend at `http://127.0.0.1:5002`.
+- `npm run dev:full`: start Python and Vite together using real backend data.
+- `npm run dev:proxy`: use `https://sandiegotraffic.com`.
+
+Setting `VITE_PROD_URL` also switches ordinary `npm run dev` to the specified backend. Production builds and previews do not enable the mock API.
 
 ## Source layout
 
 - `src/App.svelte`: application orchestration and page-level state
+- `mocks/`: sample incidents and the shared API handler used by local development and Playwright
 - `src/components/feed/`: incident feed cards, tables, comments, and loading states
 - `src/components/map/`: full and compact map views
 - `src/components/shared/`: components reused across multiple features

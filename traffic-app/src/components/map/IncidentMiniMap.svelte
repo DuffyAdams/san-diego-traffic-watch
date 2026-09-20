@@ -40,6 +40,9 @@
 <script>
     import { onMount, onDestroy, tick } from "svelte";
     import IncidentIcon from "../shared/IncidentIcon.svelte";
+    import { pageVisible } from "../../stores/pageActivity.js";
+    import { t } from "../../utils/i18n.js";
+    import { shareableMap } from "../../utils/shareImage.js";
 
     export let latitude = null;
     export let longitude = null;
@@ -130,7 +133,7 @@
     };
 
     function canActivateMap() {
-        return isNearViewport && (!deferActivation || hasRenderedOnce);
+        return $pageVisible && isNearViewport && (!deferActivation || hasRenderedOnce);
     }
 
     function requestMapSlot() {
@@ -168,7 +171,7 @@
 
         deactivationTimer = window.setTimeout(() => {
             deactivationTimer = 0;
-            if (isDestroyed || isNearViewport) return;
+            if (isDestroyed || (isNearViewport && $pageVisible)) return;
             canRenderMap = false;
             initRequestId++;
             destroyMap();
@@ -560,7 +563,7 @@
         map.jumpTo({ center });
     }
 
-    function resetForCoordinateChange() {
+    function resetForCoordinateChange(latitude, longitude) {
         const coordinateKey = `${latitude ?? ""},${longitude ?? ""}`;
         if (coordinateKey === lastCoordinateKey) return;
 
@@ -592,17 +595,18 @@
                 }
             },
             {
-                rootMargin: "500px 0px",
+                rootMargin: "180px 0px",
                 threshold: 0,
             },
         );
         observer.observe(shell);
     });
 
-    $: resetForCoordinateChange();
-    $: if (canActivateMap() && !canRenderMap && !mapUnavailable)
+    $: resetForCoordinateChange(latitude, longitude);
+    $: if ($pageVisible && isNearViewport && (!deferActivation || hasRenderedOnce) && !canRenderMap && !mapUnavailable)
         scheduleMapActivation();
-    $: if (isNearViewport && canRenderMap && mapContainer) void createMap();
+    $: if (!$pageVisible) scheduleMapDeactivation();
+    $: if (isNearViewport && canRenderMap && mapContainer && latitude != null && longitude != null) void createMap();
     $: updatePosition();
 
     onDestroy(() => {
@@ -617,36 +621,37 @@
 
 <div
     class="mini-map-shell"
-    class:loading={!mapReady && !hasRenderedOnce && !mapUnavailable}
+    class:loading={!mapReady && !mapUnavailable && isNearViewport && $pageVisible}
+    class:pending={!mapReady}
     bind:this={shell}
+    use:shareableMap={() => mapReady ? map : null}
     style="--marker-color: {markerColor};"
 >
     <div
         class:ready={mapReady}
-        class:loaded-before={hasRenderedOnce}
-        class:unavailable={mapUnavailable}
         class="mini-map-fallback"
         aria-hidden="true"
     >
-        <span class="fallback-road fallback-road-one"></span>
-        <span class="fallback-road fallback-road-two"></span>
-        <span class="fallback-road fallback-road-three"></span>
     </div>
-    {#if isNearViewport && canRenderMap}
+    {#if canRenderMap}
         <div
             class:ready={mapReady}
-            class:loaded-before={hasRenderedOnce}
             class="mini-map"
             bind:this={mapContainer}
         ></div>
     {/if}
     <div
-        class:active
+        class:active={active && isNearViewport && $pageVisible}
         class="mini-incident-icon"
         title={type}
     >
         <IncidentIcon {type} />
     </div>
+    {#if !mapReady}
+        <div class="mini-map-status" class:visually-hidden={!mapUnavailable} role="status">
+            <span>{t(mapUnavailable ? "state.mapUnavailable" : "state.loadingMap")}</span>
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -655,13 +660,7 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background:
-            radial-gradient(
-                circle at center,
-                color-mix(in srgb, var(--marker-color, #fbbf24) 8%, transparent),
-                transparent 34%
-            ),
-            #08090a;
+        background: #101317;
     }
 
     .mini-map-fallback,
@@ -672,106 +671,19 @@
         height: 100%;
     }
 
+    /* A snapshot of this renderer gives the skeleton the same streets,
+       highway colors, buildings, and camera angle as the loaded maps. */
     .mini-map-fallback {
-        background:
-            linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-            linear-gradient(0deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-            radial-gradient(
-                circle at center,
-                color-mix(in srgb, var(--marker-color, #fbbf24) 16%, transparent),
-                transparent 34%
-            ),
-            linear-gradient(135deg, #0a1018, #07090d 62%, #10131a);
-        background-size:
-            36px 36px,
-            36px 36px,
-            auto,
-            auto;
-        opacity: 0.95;
-        filter: blur(14px);
-        transform: scale(1.05);
-        transition:
-            filter 220ms ease,
-            opacity 220ms ease,
-            transform 220ms ease;
+        background: #101317 url("/map-loading.jpg") center / cover no-repeat;
+        filter: blur(7px) saturate(0.7);
+        transform: scale(1.1);
+        opacity: 0.8;
+        transition: opacity 320ms ease;
+        pointer-events: none;
     }
 
     .mini-map-fallback.ready {
-        opacity: 0.28;
-        filter: blur(0);
-        transform: scale(1);
-    }
-
-    .mini-map-fallback.unavailable {
-        opacity: 0.95;
-        filter: blur(0);
-        transform: scale(1);
-    }
-
-    .mini-map-fallback.loaded-before:not(.ready) {
-        opacity: 0.28;
-        filter: blur(0);
-        transform: scale(1);
-    }
-
-    .fallback-road {
-        position: absolute;
-        height: 3px;
-        border-radius: 999px;
-        background: rgba(74, 90, 120, 0.8);
-        box-shadow: 0 0 10px rgba(37, 99, 235, 0.16);
-        transform-origin: center;
-    }
-
-    .fallback-road-one {
-        left: -12%;
-        top: 30%;
-        width: 78%;
-        transform: rotate(-8deg);
-    }
-
-    .fallback-road-two {
-        right: -10%;
-        top: 58%;
-        width: 72%;
-        transform: rotate(11deg);
-    }
-
-    .fallback-road-three {
-        left: 44%;
-        top: -8%;
-        width: 3px;
-        height: 118%;
-        background: rgba(47, 102, 255, 0.75);
-        transform: rotate(-16deg);
-        box-shadow:
-            0 0 0 2px rgba(17, 47, 120, 0.35),
-            0 0 14px rgba(47, 102, 255, 0.45);
-    }
-
-    .mini-map {
-        background: #08090a;
         opacity: 0;
-        filter: blur(16px);
-        transform: scale(1.04);
-        transition: opacity 160ms ease;
-        z-index: 1;
-    }
-
-    .mini-map.ready {
-        opacity: 1;
-        filter: blur(0);
-        transform: scale(1);
-        transition:
-            opacity 160ms ease,
-            filter 220ms ease,
-            transform 220ms ease;
-    }
-
-    .mini-map.loaded-before:not(.ready) {
-        opacity: 1;
-        filter: blur(0);
-        transform: scale(1);
     }
 
     .mini-map-shell.loading::after {
@@ -781,13 +693,64 @@
         z-index: 1;
         pointer-events: none;
         background: linear-gradient(
-            90deg,
-            rgba(255, 255, 255, 0.03) 0%,
-            rgba(255, 255, 255, 0.08) 50%,
-            rgba(255, 255, 255, 0.03) 100%
+            105deg,
+            transparent 20%,
+            rgb(176 198 230 / 7%) 48%,
+            transparent 76%
         );
-        background-size: 200% 100%;
-        animation: miniMapShimmer 1.6s linear infinite;
+        animation: miniMapShimmer 2.4s ease-in-out infinite;
+    }
+
+    .mini-map {
+        background: #08090a;
+        opacity: 0;
+        transition: opacity 320ms ease;
+        z-index: 1;
+    }
+
+    .mini-map.ready {
+        opacity: 1;
+    }
+
+    .mini-map-status {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 11px;
+        border: 1px solid rgb(148 174 205 / 12%);
+        border-radius: 999px;
+        background: rgb(14 21 31 / 90%);
+        color: #b5c4d7;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        z-index: 3;
+        pointer-events: none;
+    }
+
+    .visually-hidden {
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .pending .mini-incident-icon {
+        opacity: 0;
+    }
+
+    .pending .mini-incident-icon.active::before {
+        animation: none;
     }
 
     .mini-incident-icon {
@@ -808,6 +771,7 @@
             0 0 0 4px color-mix(in srgb, var(--marker-color) 20%, transparent),
             0 0 16px color-mix(in srgb, var(--marker-color) 60%, transparent);
         z-index: 2;
+        transition: opacity 240ms ease;
     }
 
     .mini-incident-icon :global(svg) {
@@ -816,34 +780,37 @@
         stroke-width: 2.5;
     }
 
-    .mini-incident-icon.active {
-        animation: miniPulse 1.5s infinite;
+    .mini-incident-icon.active::before {
+        content: "";
+        position: absolute;
+        inset: -6px;
+        border: 2px solid var(--marker-color);
+        border-radius: 50%;
+        pointer-events: none;
+        animation: miniPulse 1.8s ease-out infinite;
     }
 
     @keyframes miniPulse {
-        0% {
-            box-shadow:
-                0 0 0 4px color-mix(in srgb, var(--marker-color) 22%, transparent),
-                0 0 15px color-mix(in srgb, var(--marker-color) 65%, transparent);
-        }
-        70% {
-            box-shadow:
-                0 0 0 10px color-mix(in srgb, var(--marker-color) 0%, transparent),
-                0 0 22px color-mix(in srgb, var(--marker-color) 75%, transparent);
-        }
-        100% {
-            box-shadow:
-                0 0 0 4px color-mix(in srgb, var(--marker-color) 0%, transparent),
-                0 0 15px color-mix(in srgb, var(--marker-color) 65%, transparent);
-        }
+        from { transform: scale(.8); opacity: .55; }
+        to { transform: scale(1.5); opacity: 0; }
     }
 
     @keyframes miniMapShimmer {
-        0% {
-            background-position: -200% 0;
+        from { transform: translateX(-100%); }
+        to { transform: translateX(100%); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .mini-map-shell.loading::after,
+        .mini-incident-icon.active::before {
+            animation: none;
         }
-        100% {
-            background-position: 200% 0;
+
+        .mini-map,
+        .mini-map.ready,
+        .mini-incident-icon,
+        .mini-map-fallback {
+            transition: none;
         }
     }
 </style>

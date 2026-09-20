@@ -129,6 +129,7 @@
         background-size: 200% 100%;
         animation: shimmer 1.5s infinite;
         border-radius: 8px;
+        corner-shape: squircle;
     }
 
     @keyframes shimmer {
