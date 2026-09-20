@@ -110,10 +110,7 @@ def build_incident_stats_payload(
         top_locations = dict(cur.fetchall())
 
         chart_data = _build_chart_data(cur, sources, selected_range, now)
-        previous_week_data = (
-            _previous_week_chart_data(cur, sources, now)
-            if selected_range == "day" else None
-        )
+        previous_period_data = _previous_period_chart_data(cur, sources, selected_range, now)
         historical_average, historical_samples = _historical_hour_average(cur, sources, now)
 
     runtime_snapshot = get_runtime_metrics()
@@ -127,7 +124,9 @@ def build_incident_stats_payload(
         "incidentsByType": incidents_by_type,
         "topLocations": top_locations,
         "hourlyData": chart_data,
-        "previousWeekHourlyData": previous_week_data,
+        "previousPeriodData": previous_period_data,
+        # Retain the day-view field for older clients.
+        "previousWeekHourlyData": previous_period_data if selected_range == "day" else None,
         "historicalCurrentHourAverage": historical_average,
         "historicalHourSampleCount": historical_samples,
         "generatedAt": now.isoformat(),
@@ -226,7 +225,7 @@ def _build_chart_data(cur, sources, date_filter, now):
             cur,
             sources,
             starts[0],
-            base + relativedelta(months=1),
+            now,
             "%Y-%m",
         )
         return [counts.get(start.strftime("%Y-%m"), 0) for start in starts]
@@ -234,14 +233,14 @@ def _build_chart_data(cur, sources, date_filter, now):
         base = now.replace(hour=0, minute=0, second=0, microsecond=0)
         starts = [base - timedelta(days=29 - index) for index in range(30)]
         counts = _bucket_counts(
-            cur, sources, starts[0], base + timedelta(days=1), "%Y-%m-%d"
+            cur, sources, starts[0], now, "%Y-%m-%d"
         )
         return [counts.get(start.strftime("%Y-%m-%d"), 0) for start in starts]
     if date_filter == "week":
         base = now.replace(hour=0, minute=0, second=0, microsecond=0)
         starts = [base - timedelta(days=6 - index) for index in range(7)]
         counts = _bucket_counts(
-            cur, sources, starts[0], base + timedelta(days=1), "%Y-%m-%d"
+            cur, sources, starts[0], now, "%Y-%m-%d"
         )
         return [counts.get(start.strftime("%Y-%m-%d"), 0) for start in starts]
 
@@ -250,31 +249,41 @@ def _build_chart_data(cur, sources, date_filter, now):
     return [counts.get(index, 0) for index in range(24)]
 
 
-def _previous_week_chart_data(cur, sources, now):
-    """Use the same rolling 24 hours, shifted back seven days.
+def _previous_period_chart_data(cur, sources, selected_range, now):
+    """Compare day with last week, or the preceding 7 days / 30 days / 12 months.
 
-    As with the historical average, records on each touched calendar day are
-    our coverage proxy. Missing history must not appear as a zero-activity day.
+    The final historical bucket ends at the equivalent time of day/month, so
+    an incomplete current bucket is not compared to a complete historical one.
+    Records in each touched day (month for yearly charts) are a coverage proxy
+    until ingestion history is available; missing coverage is not zero activity.
     """
-    end = now - timedelta(weeks=1)
-    start = end - timedelta(hours=24)
-    first_day = start.replace(hour=0, minute=0, second=0, microsecond=0)
-    last_day = (end - timedelta(seconds=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    clauses, params = _source_clause(sources)
-    clauses.extend(("timestamp >= ?", "timestamp < ?"))
-    params.extend((
-        first_day.strftime("%Y-%m-%d %H:%M:%S"),
-        (last_day + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
-    ))
-    cur.execute(
-        f"SELECT COUNT(DISTINCT date(timestamp)) FROM incidents WHERE {' AND '.join(clauses)}",
-        params,
-    )
-    if cur.fetchone()[0] != (last_day - first_day).days + 1:
+    if selected_range == "year":
+        end = now - relativedelta(years=1)
+        base = end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start = base - relativedelta(months=11)
+        coverage_end = base + relativedelta(months=1)
+        bucket_format = "%Y-%m"
+        expected_buckets = 12
+    elif selected_range in {"week", "month"}:
+        days = 7 if selected_range == "week" else 30
+        end = now - timedelta(days=days)
+        base = end.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = base - timedelta(days=days - 1)
+        coverage_end = base + timedelta(days=1)
+        bucket_format = "%Y-%m-%d"
+        expected_buckets = days
+    else:
+        end = now - timedelta(weeks=1)
+        start = (end - timedelta(hours=24)).replace(hour=0, minute=0, second=0, microsecond=0)
+        last_day = (end - timedelta(seconds=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        coverage_end = last_day + timedelta(days=1)
+        bucket_format = "%Y-%m-%d"
+        expected_buckets = (last_day - start).days + 1
+
+    coverage = _bucket_counts(cur, sources, start, coverage_end, bucket_format)
+    if len(coverage) != expected_buckets:
         return None
-    return _build_chart_data(cur, sources, "day", end)
+    return _build_chart_data(cur, sources, selected_range, end)
 
 
 def _historical_hour_average(cur, sources, now):

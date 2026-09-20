@@ -12,13 +12,13 @@ async function openStats(page, overrides) {
   await page.getByRole("button", { name: /^stats$/i }).click();
 }
 
-test("uses last-hour volume and explains the baseline; historical views have no hourly alert", async ({ page }) => {
+test("uses last-hour volume with a compact status; historical views have no hourly alert", async ({ page }) => {
   await openStats(page, {
     eventsLastHour: 10, historicalCurrentHourAverage: 10, historicalHourSampleCount: 6,
     hourlyData: Array(24).fill(100),
   });
   await expect(page.locator(".activity-chart-section .status-indicator")).toHaveText("Typical activity");
-  await expect(page.locator(".activity-context")).toContainText("Last hour: 10 incidents · Usual: 10");
+  await expect(page.locator(".activity-context")).toHaveCount(0);
   for (const name of ["Week", "Month", "Year"]) {
     await page.getByRole("button", { name, exact: true }).click();
     await expect(page.locator(".activity-chart-section .status-indicator")).toHaveCount(0);
@@ -33,7 +33,7 @@ test("missing baseline stays neutral even with incidents", async ({ page }) => {
     eventsLastHour: 20, historicalCurrentHourAverage: 0, historicalHourSampleCount: 0,
   });
   await expect(page.locator(".activity-chart-section .status-indicator")).toHaveText("Building baseline");
-  await expect(page.locator(".activity-context")).toContainText("At least 3 matching hours");
+  await expect(page.locator(".activity-context")).toHaveCount(0);
 });
 
 test("empty chart data is not presented as typical activity", async ({ page }) => {

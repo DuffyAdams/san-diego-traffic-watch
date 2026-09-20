@@ -96,6 +96,7 @@
    * @property {Record<string, number>} topLocations
    * @property {number[]} [hourlyData]
    * @property {number[] | null} [previousWeekHourlyData]
+   * @property {number[] | null} [previousPeriodData]
    * @property {number} [historicalCurrentHourAverage]
    * @property {number} [historicalHourSampleCount]
    * @property {string} [generatedAt]
@@ -196,7 +197,7 @@
 
   /** @type {number[]} */
   let hourlyData = [];
-  let previousWeekHourlyData = null;
+  let previousPeriodData = null;
   let historicalCurrentHourAverage = null;
   let historicalHourSampleCount = 0;
   let statsReferenceTime = "";
@@ -712,7 +713,8 @@
         );
         // Important: Create new array reference for caching to trigger Svelte reactivity
         hourlyData = (cachedStats.hourlyData || []).map(Number);
-        previousWeekHourlyData = cachedStats.previousWeekHourlyData ?? null;
+        previousPeriodData = cachedStats.previousPeriodData ??
+          (timeFilter === "day" ? cachedStats.previousWeekHourlyData ?? null : null);
         historicalCurrentHourAverage =
           cachedStats.historicalCurrentHourAverage ?? null;
         historicalHourSampleCount = cachedStats.historicalHourSampleCount ?? 0;
@@ -744,7 +746,8 @@
       eventsActive = stats.eventsActive;
       totalIncidents = stats.totalIncidents;
       hourlyData = (stats.hourlyData || []).map(Number);
-      previousWeekHourlyData = stats.previousWeekHourlyData ?? null;
+      previousPeriodData = stats.previousPeriodData ??
+        (timeFilter === "day" ? stats.previousWeekHourlyData ?? null : null);
       historicalCurrentHourAverage = stats.historicalCurrentHourAverage ?? null;
       historicalHourSampleCount = stats.historicalHourSampleCount ?? 0;
       statsReferenceTime = stats.generatedAt || "";
@@ -1268,7 +1271,7 @@
               {totalIncidents}
               {timeFilter}
               {hourlyData}
-              {previousWeekHourlyData}
+              {previousPeriodData}
               {historicalCurrentHourAverage}
               {historicalHourSampleCount}
               referenceTime={statsReferenceTime}

@@ -420,48 +420,105 @@ function buildHourlyData(incidents, referenceTime = now) {
   return buckets;
 }
 
-function buildPreviousWeekHourlyData(incidents) {
-  const end = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-  const firstDay = new Date(start).setHours(0, 0, 0, 0);
-  const lastDay = new Date(end.getTime() - 1).setHours(0, 0, 0, 0);
-  for (let day = new Date(firstDay); day.getTime() <= lastDay; day.setDate(day.getDate() + 1)) {
-    if (!incidents.some(incident => new Date(incident.timestamp).toDateString() === day.toDateString())) {
-      return null;
-    }
+function periodReference(period) {
+  const reference = new Date(now);
+  if (period === "year") {
+    // Clamp leap day instead of allowing Date.setFullYear to roll into March.
+    const day = reference.getDate();
+    reference.setDate(1);
+    reference.setFullYear(reference.getFullYear() - 1);
+    const lastDay = new Date(reference.getFullYear(), reference.getMonth() + 1, 0).getDate();
+    reference.setDate(Math.min(day, lastDay));
+  } else {
+    reference.setDate(reference.getDate() - (period === "month" ? 30 : 7));
   }
-  return buildHourlyData(incidents, end);
+  return reference;
 }
 
-function buildDayData(incidents, days) {
-  const buckets = Array.from({ length: days }, () => 0);
+function calendarBucketStarts(period, reference) {
+  const count = period === "year" ? 12 : period === "month" ? 30 : 7;
+  const base = new Date(reference);
+  base.setHours(0, 0, 0, 0);
+  if (period === "year") base.setDate(1);
+  return Array.from({ length: count }, (_, index) => {
+    const start = new Date(base);
+    if (period === "year") start.setMonth(start.getMonth() - (count - 1 - index));
+    else start.setDate(start.getDate() - (count - 1 - index));
+    return start;
+  });
+}
+
+function calendarKey(date, period) {
+  return period === "year" ? `${date.getFullYear()}-${date.getMonth()}` : date.toDateString();
+}
+
+function buildChartData(incidents, period, reference = now) {
+  if (period === "day") return buildHourlyData(incidents, reference);
+  const starts = calendarBucketStarts(period, reference);
+  const counts = new Map(starts.map(start => [calendarKey(start, period), 0]));
   for (const incident of incidents) {
-    const ageDays = Math.floor((now.getTime() - new Date(incident.timestamp).getTime()) / (24 * 60 * 60 * 1000));
-    if (ageDays >= 0 && ageDays < days) {
-      buckets[days - 1 - ageDays] += 1;
-    }
+    const timestamp = new Date(incident.timestamp);
+    if (timestamp < starts[0] || timestamp >= reference) continue;
+    const key = calendarKey(timestamp, period);
+    if (counts.has(key)) counts.set(key, counts.get(key) + 1);
   }
-  return buckets;
+  return [...counts.values()];
 }
 
-function buildMonthData(incidents) {
-  return buildDayData(incidents, 30);
+function buildPreviousPeriodData(incidents, period) {
+  const reference = periodReference(period);
+  let coverageStarts;
+  if (period === "day") {
+    const start = new Date(reference.getTime() - 24 * 60 * 60 * 1000);
+    start.setHours(0, 0, 0, 0);
+    const lastDay = new Date(reference.getTime() - 1);
+    lastDay.setHours(0, 0, 0, 0);
+    coverageStarts = [];
+    for (const day = new Date(start); day <= lastDay; day.setDate(day.getDate() + 1)) {
+      coverageStarts.push(new Date(day));
+    }
+  } else {
+    coverageStarts = calendarBucketStarts(period, reference);
+  }
+  const covered = new Set(incidents.map(incident => calendarKey(new Date(incident.timestamp), period)));
+  if (coverageStarts.some(start => !covered.has(calendarKey(start, period)))) return null;
+  return buildChartData(incidents, period, reference);
 }
 
-function buildYearData(incidents) {
-  const buckets = Array.from({ length: 12 }, () => 0);
-  for (const incident of incidents) {
-    const incidentDate = new Date(incident.timestamp);
-    const monthDelta =
-      now.getMonth() -
-      incidentDate.getMonth() +
-      (now.getFullYear() - incidentDate.getFullYear()) * 12;
-    if (monthDelta >= 0 && monthDelta < 12) {
-      buckets[11 - monthDelta] += 1;
+// More than two years of deterministic history. Recent hand-authored incidents
+// stay at the top of the feed; history supplies every source and comparison view.
+function historicalIncidents() {
+  const history = [];
+  const start = new Date(now.getFullYear(), now.getMonth() - 24, 1);
+  const cutoff = now.getTime() - 48 * 60 * 60 * 1000;
+  const sources = ["CHP", "SDPD", "SDFD"];
+  const templates = sources.map(source => baseIncidents.filter(incident => incident.source === source));
+  let dayIndex = 0;
+  for (const day = new Date(start); day.getTime() < cutoff; day.setDate(day.getDate() + 1), dayIndex++) {
+    for (const [sourceIndex, source] of sources.entries()) {
+      const count = 2 + (dayIndex * 7 + sourceIndex * 3) % 5 +
+        (day.getMonth() + day.getFullYear() + sourceIndex) % 4;
+      for (let index = 0; index < count; index++) {
+        const timestamp = new Date(day);
+        timestamp.setHours((index * 5 + dayIndex + sourceIndex * 7) % 24, 10 + index * 4, 0, 0);
+        if (timestamp.getTime() >= cutoff) continue;
+        const template = templates[sourceIndex][(dayIndex + index) % templates[sourceIndex].length];
+        history.push(makeIncident({
+          ...template,
+          incident_no: `H-${dayIndex}-${sourceIndex}-${index}`,
+          timestamp: timestamp.toISOString(),
+          description: `Historical sample: ${template.type} near ${template.location}.`,
+          active: false,
+          likes: 0,
+          comments: [],
+        }));
+      }
     }
   }
-  return buckets;
+  return history;
 }
+
+const historicalSamples = historicalIncidents();
 
 function filterByDate(incidents, dateFilter) {
   if (dateFilter === "week") {
@@ -481,7 +538,7 @@ export function cloneIncident(incident) {
 }
 
 export function seedIncidents() {
-  return baseIncidents
+  return [...baseIncidents, ...historicalSamples]
     .map(cloneIncident)
     .sort(compareIncidentsDescending);
 }
@@ -552,16 +609,8 @@ export function buildStats(incidents, query) {
     }
   }
 
-  let hourlyData;
-  if (dateFilter === "year") {
-    hourlyData = buildYearData(filtered);
-  } else if (dateFilter === "month") {
-    hourlyData = buildMonthData(filtered);
-  } else if (dateFilter === "week") {
-    hourlyData = buildDayData(filtered, 7);
-  } else {
-    hourlyData = buildHourlyData(filtered);
-  }
+  const hourlyData = buildChartData(filtered, dateFilter);
+  const previousPeriodData = buildPreviousPeriodData(filtered, dateFilter);
 
   return {
     eventsToday: todayScoped.length,
@@ -571,9 +620,10 @@ export function buildStats(incidents, query) {
     incidentsByType,
     topLocations,
     hourlyData,
-    previousWeekHourlyData: dateFilter === "day" ? buildPreviousWeekHourlyData(filtered) : null,
+    previousPeriodData,
+    previousWeekHourlyData: dateFilter === "day" ? previousPeriodData : null,
     historicalCurrentHourAverage: 2,
     historicalHourSampleCount: 6,
-    generatedAt: new Date().toISOString(),
+    generatedAt: now.toISOString(),
   };
 }

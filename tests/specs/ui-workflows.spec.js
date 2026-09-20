@@ -44,7 +44,7 @@ test("supports diagnostics, search, and comment submission", async ({ page }) =>
   const latestActivityBar = page.locator(".bar-wrapper").last();
   await latestActivityBar.hover();
   const activityTooltip = page.locator(".chart-tooltip");
-  await expect(activityTooltip.locator(".tooltip-value")).toContainText(/incidents?$/);
+  await expect(activityTooltip.locator(".tooltip-value").first()).toContainText(/\d/);
   await latestActivityBar.hover({ force: true });
   await expect(activityTooltip).toBeVisible();
   const tooltipContrast = await activityTooltip.evaluate((tooltip) => {

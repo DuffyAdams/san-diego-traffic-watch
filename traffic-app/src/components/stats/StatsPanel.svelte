@@ -20,7 +20,7 @@
     export let totalIncidents = 0;
     export let timeFilter = "day";
     export let hourlyData = [];
-    export let previousWeekHourlyData = null;
+    export let previousPeriodData = null;
     export let incidentsByType = {};
     export let topLocations = {};
     export let selectedTypes = new Set();
@@ -50,12 +50,20 @@
                 : 12;
     $: chartData = normalizeChartData(hourlyData, expectedBucketCount);
     // An absent or incomplete comparison is unknown, not zero activity.
-    $: comparisonData = timeFilter === "day" &&
-        Array.isArray(previousWeekHourlyData) &&
-        previousWeekHourlyData.length === 24 &&
-        previousWeekHourlyData.every(value => Number.isFinite(value) && value >= 0)
-            ? previousWeekHourlyData : [];
-    $: hasComparison = comparisonData.length === 24;
+    $: comparisonData = Array.isArray(previousPeriodData) &&
+        previousPeriodData.length === expectedBucketCount &&
+        previousPeriodData.every(value => Number.isFinite(value) && value >= 0)
+            ? previousPeriodData : [];
+    $: hasComparison = comparisonData.length === expectedBucketCount;
+    $: currentPeriodLabel = t({
+        day: "diagnostics.current24Hours", week: "diagnostics.current7Days",
+        month: "diagnostics.current30Days", year: "diagnostics.current12Months",
+    }[timeFilter]);
+    $: previousPeriodLabel = t({
+        day: "diagnostics.previousWeek24Hours", week: "diagnostics.previous7Days",
+        month: "diagnostics.previous30Days", year: "diagnostics.previous12Months",
+    }[timeFilter]);
+    $: unavailableLabel = t(timeFilter === "day" ? "diagnostics.previousWeekUnavailable" : "diagnostics.previousPeriodUnavailable");
     $: typeEntries = Object.entries(incidentsByType);
     $: locationEntries = Object.entries(topLocations);
     $: maxTypeCount = Math.max(...typeEntries.map(([, count]) => count), 1);
@@ -77,16 +85,6 @@
         lightIncidents: "var(--text-muted)",
         nominal: "#10b981",
     }[activityStatus] || "var(--text-muted)";
-    $: statusExplanation = activityStatus === "noData"
-        ? t("diagnostics.noActivityData")
-        : activityStatus === "insufficientHistory"
-          ? t("status.historyNeeded")
-          : t("status.activityComparison", {
-                current: eventsLastHour,
-                average: historicalCurrentHourAverage,
-                samples: historicalHourSampleCount,
-            });
-
     // Update currentTime every minute
     onMount(() => {
         const interval = setInterval(() => {
@@ -123,7 +121,7 @@
               })
             : timeFilter === "week"
               ? Array.from({ length: 7 }, (_, i) => {
-                    const date = new Date();
+                    const date = new Date(currentTime);
                     date.setDate(date.getDate() - (6 - i));
                     return formatDateTime(date, {
                         weekday: "short",
@@ -131,14 +129,14 @@
                 })
               : timeFilter === "month"
                 ? Array.from({ length: 30 }, (_, i) => {
-                      const date = new Date();
+                      const date = new Date(currentTime);
                       date.setDate(date.getDate() - (29 - i));
                       return formatDateTime(date, {
                           day: "numeric",
                       });
                   })
                 : Array.from({ length: 12 }, (_, i) => {
-                      const date = new Date();
+                      const date = new Date(currentTime);
                       date.setDate(1);
                       date.setMonth(currentTime.getMonth() - (11 - i));
                       return formatDateTime(date, {
@@ -238,29 +236,26 @@
                 </div>
             {/if}
         </div>
-        {#if timeFilter === "day"}
-            <p class="activity-context">{statusExplanation}</p>
-            {#if chartData.length > 0}
-                <div class="chart-legend">
-                    <span><i class="legend-swatch current-swatch"></i>{t("diagnostics.current24Hours")}</span>
-                    <span>
-                        {#if hasComparison}<i class="legend-swatch previous-swatch"></i>{/if}
-                        {t(hasComparison ? "diagnostics.previousWeek24Hours" : "diagnostics.previousWeekUnavailable")}
-                    </span>
-                </div>
-            {/if}
+        {#if chartData.length > 0}
+            <div class="chart-legend">
+                <span><i class="legend-swatch current-swatch"></i>{currentPeriodLabel}</span>
+                <span>
+                    {#if hasComparison}<i class="legend-swatch previous-swatch"></i>{/if}
+                    {hasComparison ? previousPeriodLabel : unavailableLabel}
+                </span>
+            </div>
         {/if}
 
         <div class="custom-chart-container">
             {#if chartData && chartData.length > 0}
-                <div class="chart-bars" class:with-comparison={hasComparison}>
+                <div class="chart-bars">
                     {#each chartData as value, i (`${timeFilter}-${i}`)}
                         <!-- svelte-ignore a11y-no-static-element-interactions -->
                         <div
                             class="bar-wrapper"
                             role="img"
                             aria-label={hasComparison
-                                ? t("diagnostics.hourlyComparison", { time: chartLabels[i], current: value, previous: comparisonData[i] })
+                                ? t("diagnostics.periodComparison", { time: chartLabels[i], current: value, previous: comparisonData[i], currentLabel: currentPeriodLabel, previousLabel: previousPeriodLabel })
                                 : `${chartLabels[i]}: ${t("diagnostics.incidentsCount", { count: value })}`}
                             on:mouseenter={() => (hoveredIndex = i)}
                             on:mouseleave={() => (hoveredIndex = null)}
@@ -291,12 +286,12 @@
                                                 {chartLabels[i]}
                                             </div>
                                             <div class="tooltip-value">
-                                                {#if hasComparison}{t("diagnostics.current24Hours")}: {/if}
-                                                {t("diagnostics.incidentsCount", { count: value })}
+                                                {#if hasComparison}{currentPeriodLabel}: {/if}
+                                                {formatNumber(value)}
                                             </div>
                                             {#if hasComparison}
                                                 <div class="tooltip-value">
-                                                    {t("diagnostics.previousWeek24Hours")}: {t("diagnostics.incidentsCount", { count: comparisonData[i] })}
+                                                    {previousPeriodLabel}: {formatNumber(comparisonData[i])}
                                                 </div>
                                             {/if}
                                         </div>
@@ -319,9 +314,7 @@
                                 {:else if timeFilter === "month"}
                                     {#if i % 5 === 0 || i === chartLabels.length - 1}
                                         <span class="x-label"
-                                            >{chartLabels[i].split(
-                                                " ",
-                                            )[1]}</span
+                                            >{chartLabels[i]}</span
                                         >
                                     {/if}
                                 {:else}
@@ -610,13 +603,6 @@
         text-transform: uppercase;
     }
 
-    .activity-context {
-        margin: 0.4rem 0 0.6rem;
-        color: var(--text-muted);
-        font-size: 0.72rem;
-        line-height: 1.5;
-    }
-
     .custom-chart-container {
         position: relative;
         width: 100%;
@@ -655,26 +641,22 @@
 
     .previous-swatch,
     .comparison-bar {
-        background: color-mix(in srgb, var(--text-muted) 28%, transparent);
-        border: 1px solid color-mix(in srgb, var(--text-muted) 65%, transparent);
+        background: color-mix(in srgb, var(--accent-primary) 58%, #000);
+        opacity: 0.25;
     }
 
     .comparison-bar {
         position: absolute;
         bottom: 0;
         width: 100%;
-        border-radius: 4px 4px 0 0;
+        border-radius: 6px 6px 2px 2px;
+        corner-shape: squircle;
         pointer-events: none;
         transition: height 0.4s var(--ease-out);
     }
 
     .comparison-bar.empty {
         visibility: hidden;
-    }
-
-    .with-comparison .bar {
-        width: 55%;
-        margin-inline: auto;
     }
 
     .chart-bars {
@@ -1143,12 +1125,6 @@
         .status-text {
             font-size: 0.6rem;
             letter-spacing: 0.01em;
-        }
-
-        .activity-context {
-            margin: 0;
-            font-size: 0.7rem;
-            line-height: 1.4;
         }
 
         .custom-chart-container {
