@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 from backend import config, db, llm
 
 
-class MistralOnlyPipelineTests(unittest.TestCase):
+class ImmediateLlmPipelineTests(unittest.TestCase):
     def test_new_incident_is_not_queued_for_deferred_refinement(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = os.path.join(temp_dir, "traffic-test.db")
@@ -42,12 +42,12 @@ class MistralOnlyPipelineTests(unittest.TestCase):
             self.assertIsNone(enriched_at)
             self.assertIsNotNone(pending_at)
 
-    def test_only_mistral_summary_model_is_configured(self):
-        self.assertEqual(config.DEFAULT_IMMEDIATE_LLM_MODEL, "mistralai/mistral-nemo")
+    def test_glm_flash_summary_model_is_configured(self):
+        self.assertEqual(config.DEFAULT_IMMEDIATE_LLM_MODEL, "z-ai/glm-5.3-flash")
         self.assertFalse(hasattr(config, "BATCH_LLM_MODEL"))
         self.assertFalse(hasattr(config, "DEFAULT_BATCH_LLM_MODEL"))
 
-    def test_non_mistral_environment_override_is_ignored(self):
+    def test_environment_model_override_is_ignored(self):
         env = os.environ.copy()
         env["IMMEDIATE_LLM_MODEL"] = "google/gemini-2.5-flash-lite"
         result = subprocess.run(
@@ -66,7 +66,7 @@ class MistralOnlyPipelineTests(unittest.TestCase):
             text=True,
         )
 
-        self.assertEqual(result.stdout.strip(), "mistralai/mistral-nemo")
+        self.assertEqual(result.stdout.strip(), "z-ai/glm-5.3-flash")
 
     def test_background_enrichment_can_surface_transient_provider_failures(self):
         client = SimpleNamespace(
@@ -88,7 +88,7 @@ class MistralOnlyPipelineTests(unittest.TestCase):
                 raise_on_error=True,
             )
 
-    def test_llm_call_uses_configured_mistral_model(self):
+    def test_llm_call_uses_configured_glm_flash_model(self):
         create = Mock(return_value=SimpleNamespace())
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=create))
@@ -97,7 +97,7 @@ class MistralOnlyPipelineTests(unittest.TestCase):
         with patch.object(llm, "llm_client", client):
             llm._call_llm("system", "user")
 
-        self.assertEqual(create.call_args.kwargs["model"], "mistralai/mistral-nemo")
+        self.assertEqual(create.call_args.kwargs["model"], "z-ai/glm-5.3-flash")
 
 
 if __name__ == "__main__":

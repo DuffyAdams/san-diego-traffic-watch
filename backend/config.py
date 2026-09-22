@@ -55,8 +55,8 @@ os.makedirs(TARGET_DIR, exist_ok=True)
 # ── Feature flags ────────────────────────────────────────────────────────────
 TESTMODE = env_bool("TESTMODE")
 
-# LLM enrichment: use Mistral for incident summaries.
-DEFAULT_IMMEDIATE_LLM_MODEL = "mistralai/mistral-nemo"
+# LLM enrichment: use GLM Flash for incident summaries.
+DEFAULT_IMMEDIATE_LLM_MODEL = "z-ai/glm-5.3-flash"
 IMMEDIATE_LLM_MODEL = DEFAULT_IMMEDIATE_LLM_MODEL
 
 # San Diego traffic sources use the local Pacific clock, including daylight time.

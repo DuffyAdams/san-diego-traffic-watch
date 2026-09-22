@@ -127,7 +127,7 @@ def init_db(db_file=None):
         _add_column(cur, "incidents", "llm_pending_at",    "TEXT DEFAULT NULL")
 
         # Carry unfinished work from the removed Gemini batch queue into the
-        # provider-neutral per-incident Mistral retry queue exactly once.
+        # provider-neutral per-incident LLM retry queue exactly once.
         cur.execute(
             """
             UPDATE incidents

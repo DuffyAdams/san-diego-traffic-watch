@@ -152,7 +152,7 @@ def _refresh_key(incident):
 
 
 def _schedule_description_refresh(incident):
-    """Schedule one Mistral refresh while deduplicating in-flight work."""
+    """Schedule one LLM refresh while deduplicating in-flight work."""
     # Already-closed source records keep their immediate factual description.
     # The active-only worker cannot save enrichment for these records.
     if incident.get("active", 1) == 0:
@@ -184,7 +184,7 @@ def _schedule_description_refresh(incident):
 
 
 def _recover_pending_mistral_refreshes(limit=100):
-    """Resubmit persisted per-incident Mistral work after failures/restarts."""
+    """Resubmit persisted per-incident LLM work after failures/restarts."""
     with db_lock:
         with sqlite_connection(DB_FILE) as conn:
             conn.row_factory = sqlite3.Row
@@ -223,7 +223,7 @@ def _recover_pending_mistral_refreshes(limit=100):
 
 
 def _refresh_incident_description(incident):
-    """Generate a durable Mistral summary without blocking incident ingest."""
+    """Generate a durable LLM summary without blocking incident ingest."""
     try:
         incident_no = incident.get("No.") or incident.get("Incident No.")
         if not incident_no:

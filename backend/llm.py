@@ -1,6 +1,6 @@
 """
 LLM integration for generating incident descriptions and severity scores.
-Uses OpenRouter with the configured Mistral model.
+Uses OpenRouter with the configured incident-summary model.
 """
 
 import json
@@ -78,7 +78,7 @@ def generate_description(data, raise_on_error=False):
 
 
 def _call_llm(system_prompt, user_message):
-    """Call the configured Mistral summary model."""
+    """Call the configured incident-summary model."""
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message},
