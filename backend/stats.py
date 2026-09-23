@@ -167,9 +167,9 @@ def _count_with_source(cur, sources, condition, condition_params):
 
 def _source_clause(sources):
     if not sources:
-        return [], []
+        return ["related_incident IS NULL"], []
     placeholders = ",".join("?" for _ in sources)
-    return [f"source IN ({placeholders})"], list(sources)
+    return ["related_incident IS NULL", f"source IN ({placeholders})"], list(sources)
 
 
 def _bucket_counts(cur, sources, start_dt, end_dt, bucket_format):

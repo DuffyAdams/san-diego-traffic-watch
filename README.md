@@ -20,8 +20,7 @@ The repository has three main pieces:
 - Runs continuous scrape cycles every 15 seconds and marks stale incidents inactive when they fall out of source feeds.
 - Stores incidents, likes, comments, geocoding cache entries, and API analytics events in SQLite with WAL mode enabled.
 - Geocodes non-coordinate incidents with cached lookups, Nominatim first, and ArcGIS fallback constrained to the San Diego region.
-- Generates incident summaries and 1 to 5 severity scores with Mistral Nemo
-  through OpenRouter via the OpenAI SDK.
+- Generates incident summaries with GLM Flash through OpenRouter; traffic-impact severity uses conservative source-backed rules.
 - Supports per-device likes and up to two comments per incident using a persistent UUID cookie.
 - Serves incident statistics, operational dashboard metrics, and health checks over JSON endpoints.
 - Renders interactive frontend maps with MapLibre plus local PMTiles assets instead of remote static map images.
@@ -47,6 +46,10 @@ The current dark-mode UI is shown below using deterministic local incident data.
 - SQLite lifecycle: deterministic commit, rollback, and connection cleanup in [backend/sqlite_utils.py](backend/sqlite_utils.py)
 - Geocoding: cached Nominatim and ArcGIS lookups in [backend/geocoding.py](backend/geocoding.py)
 - LLM summaries: OpenRouter-backed client in [backend/llm.py](backend/llm.py)
+
+## CHP collection and AI descriptions
+
+CHP collection now supports a single XML snapshot, an HTML fallback, and comparison mode. Incident descriptions use compact source facts, simple local templates, a durable queue that combines pending updates, and explicit low reasoning with token/cost accounting. See [configuration, rollout, and validation](docs/chp-description-operations.md).
 
 ## Frontend Performance
 

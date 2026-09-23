@@ -286,6 +286,16 @@ async function loadDashboard() {
       fetchJson(`/api/incident_stats?${query}`),
     ]);
 
+    const ai = dashboard.llmUsage;
+    if (ai) {
+      document.getElementById("ai-cost").textContent = ai.reportedCost == null ? (ai.attempts ? "Unknown" : "$0.00") : `$${Number(ai.reportedCost).toFixed(4)}${ai.missingCost ? " + unknown" : ""}`;
+      document.getElementById("ai-attempts").textContent = `${formatNumber(ai.attempts)} attempts · ${formatNumber(ai.staleResults)} stale results`;
+      document.getElementById("ai-tokens").textContent = ai.inputTokens == null || ai.completionTokens == null ? (ai.attempts ? "Unknown" : "0") : `${formatNumber(ai.inputTokens + ai.completionTokens)}${ai.missingUsage ? " + unknown" : ""}`;
+      document.getElementById("ai-reasoning").textContent = ai.reasoningTokens == null ? "Reasoning usage unavailable" : `${formatNumber(ai.reasoningTokens)} reasoning tokens included`;
+      document.getElementById("ai-pending").textContent = `${formatNumber(ai.jobs?.pending)} pending`;
+      document.getElementById("ai-failed").textContent = `${formatNumber(ai.jobs?.failed)} need attention · ${formatNumber(ai.templates)} stored templates`;
+    }
+
     const rangeLabel = dashboard.rangeLabel || stats.rangeLabel || "Selected range";
     const rangeKey = dashboard.rangeKey || currentRange;
     const series = Array.isArray(stats.hourlyData) ? stats.hourlyData.map(Number) : [];

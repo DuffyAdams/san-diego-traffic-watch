@@ -1,0 +1,12 @@
+<State><Center ID="INHB"><Dispatch ID="BCCC">
+<Log ID="260923BC0007">
+<LogTime>"Sep 23 2026 12:01PM"</LogTime><LogType>"1183-Trfc Collision-Unkn Inj"</LogType>
+<Location>"I5 N / Test Rd"</Location><LocationDesc>""</LocationDesc><Area>"San Diego"</Area><LATLON>"32712902:117118422"</LATLON>
+<LogDetails>
+<details><DetailTime>"Sep 23 2026 12:03PM"</DetailTime><IncidentDetail>"[3] EVERYTHING ON RHS [Shared]"</IncidentDetail></details>
+<details><DetailTime>"Sep 23 2026 12:02PM"</DetailTime><IncidentDetail>"[2] BLOCKING #1 LN"</IncidentDetail></details>
+<details><DetailTime>"Sep 23 2026 12:01PM"</DetailTime><IncidentDetail>"[1] TWO VEHICLES REPORTED"</IncidentDetail></details>
+<units><UnitTime>"Sep 23 2026 12:04PM"</UnitTime><UnitDetail>"Unit At Scene"</UnitDetail></units>
+</LogDetails></Log>
+<Log ID="260923BC0002"><LogTime>"Sep 23 2026 12:03AM"</LogTime><LogType>"Road/Weather Conditions"</LogType><Location>"Media Log"</Location><LogDetails/></Log>
+</Dispatch></Center></State>

@@ -64,9 +64,9 @@ class DescriptionTests(unittest.TestCase):
 
     def test_valid_ai_summary_is_preserved(self):
         response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
-            content='```json\n{"summary":"Reported collision on I-5.","severity":2}\n```'
+            content='{"summary":"Reported collision on I-5."}'
         ))])
-        self.assertEqual(llm._parse_response(response, False), ("Reported collision on I-5.", 2))
+        self.assertEqual(llm._parse_response(response, False), ("Reported collision on I-5.", None))
 
     def test_unconfigured_ai_returns_source_facts(self):
         with patch.object(llm, "TESTMODE", False), patch.object(llm, "LLM_API_CONFIGURED", False):

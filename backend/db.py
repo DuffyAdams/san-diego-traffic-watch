@@ -12,6 +12,7 @@ from .logging_utils import safe_print
 from .llm import generate_description
 from .descriptions import incident_description, source_description, usable_description
 from .sqlite_utils import sqlite_connection
+from .description_jobs import init_schema as init_description_schema, sync_job
 
 
 TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
@@ -145,6 +146,19 @@ def init_db(db_file=None):
             """
         )
 
+        for name, definition in {
+            "native_id": "TEXT", "raw_type": "TEXT", "area": "TEXT",
+            "details_stale": "INTEGER DEFAULT 0", "description_origin": "TEXT DEFAULT 'legacy'",
+            "missing_polls": "INTEGER DEFAULT 0", "related_incident": "TEXT",
+        }.items():
+            _add_column(cur, "incidents", name, definition)
+        init_description_schema(conn)
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_incidents_native ON incidents(source, native_id) WHERE native_id IS NOT NULL")
+        cur.execute("""CREATE TABLE IF NOT EXISTS incident_source_events (
+            source TEXT NOT NULL, native_id TEXT NOT NULL, event_hash TEXT NOT NULL,
+            observed_at TEXT NOT NULL, payload TEXT NOT NULL,
+            PRIMARY KEY(source, native_id, event_hash))""")
+
         # ── Type normalisation ─────────────────────────────────────────────
         _normalise_types(cur)
 
@@ -152,6 +166,10 @@ def init_db(db_file=None):
         for statement in INDEX_STATEMENTS:
             cur.execute(statement)
 
+        conn.row_factory = sqlite3.Row
+        # Recover legacy pending work without re-summarizing completed history.
+        for row in conn.execute("SELECT * FROM incidents WHERE active=1 AND llm_pending_at IS NOT NULL").fetchall():
+            sync_job(conn, dict(row))
         conn.commit()
 
 
@@ -196,7 +214,7 @@ def read_incidents(
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
 
-        conditions, params = [], []
+        conditions, params = ["related_incident IS NULL"], []
 
         if sources:
             _in(conditions, params, "source", sources)
@@ -398,6 +416,8 @@ def save_or_update_incident(
         date = type_field[:10]
         type_field = location_desc
 
+    # A failed detail fetch is not evidence that the source erased its narrative.
+    details_unavailable = data.get("DetailsAvailable") is False
     new_details = data.get("Details", [])
     if isinstance(new_details, str):
         new_details = [new_details]
@@ -419,20 +439,22 @@ def save_or_update_incident(
                 row = cur.fetchone()
                 existing_record = dict(row) if row else None
 
-    # ── Generate LLM description outside the lock (slow network call) ──────
+    if details_unavailable and existing_record:
+        try:
+            new_details = json.loads(existing_record.get("details") or "[]")
+        except (ValueError, TypeError):
+            new_details = []
+        details_json = json.dumps(new_details)
+        data = {**data, "Details": new_details}
+
+    # Immediate source fallback; durable jobs own all network enrichment.
     if not existing_record:
-        if generate_description_on_insert:
-            new_description, new_severity = generate_description(data)
-        else:
-            new_description = incident_description(data)
-            new_severity = data.get("severity")
+        new_description = incident_description(data)
+        new_severity = data.get("severity")
     else:
         new_description = existing_record.get("description")
-        new_severity    = existing_record.get("severity")
-        if (
-            not usable_description(new_description)
-            or new_description == source_description(existing_record)
-        ):
+        new_severity = existing_record.get("severity")
+        if not usable_description(new_description) or new_description == source_description(existing_record):
             new_description = source_description(data)
 
     # ── Apply DB update/insert ─────────────────────────────────────────────
@@ -446,12 +468,8 @@ def save_or_update_incident(
                 updates, params = [], []
 
                 if details_json != existing_data.get("details", ""):
-                    updates.append(
-                        "details = ?, llm_pending_at = ?"
-                    )
-                    params.extend(
-                        [details_json, pst_timestamp_str()]
-                    )
+                    updates.append("details = ?")
+                    params.append(details_json)
 
                 if new_description != existing_data.get("description"):
                     # A background AI summary may have arrived since prefetch.
@@ -469,13 +487,20 @@ def save_or_update_incident(
                     "type": type_field,
                     "active": active_status,
                     "source": source,
+                    "raw_type": data.get("RawType") or data.get("Type", ""),
+                    "area": data.get("Area", ""),
+                    "details_stale": int(details_unavailable),
+                    "missing_polls": 0,
                 }
+                if "RelatedIncidentID" in data:
+                    mutable_values["related_incident"] = data["RelatedIncidentID"]
                 for column, value in mutable_values.items():
                     if value != existing_data.get(column):
                         updates.append(f"{column} = ?")
                         params.append(value)
 
                 optional_values = {
+                    "native_id": data.get("NativeID"),
                     "latitude": latitude,
                     "longitude": longitude,
                     "map_filename": new_map_filename or None,
@@ -495,10 +520,12 @@ def save_or_update_incident(
                     )
                     params.extend([str(incident_no), existing_data.get("date", date)])
                     cur.execute(query, tuple(params))
+                    _sync_source_and_job(conn, str(incident_no), date, data)
                     conn.commit()
                     safe_print(f"Incident {incident_no} updated.")
                     return "updated" if return_status else True
                 else:
+                    _sync_source_and_job(conn, str(incident_no), date, data)
                     if log_unchanged:
                         safe_print(f"No changes for incident {incident_no}.")
                     return "unchanged" if return_status else False
@@ -530,9 +557,25 @@ def save_or_update_incident(
                         active_status, source, geocode_precision, new_severity,
                         None,
                         None,
-                        pst_timestamp_str() if not generate_description_on_insert and active_status else None,
+                        pst_timestamp_str() if active_status else None,
                     ),
                 )
+                conn.execute("""UPDATE incidents SET native_id=?, raw_type=?, area=?, details_stale=?, related_incident=?, description_origin='source'
+                    WHERE incident_no=? AND date=?""",
+                    (data.get("NativeID"), data.get("RawType") or data.get("Type", ""), data.get("Area", ""),
+                     int(details_unavailable), data.get("RelatedIncidentID"), str(incident_no), date))
+                _sync_source_and_job(conn, str(incident_no), date, data)
                 conn.commit()
                 safe_print(f"Incident {incident_no} inserted.")
                 return "inserted" if return_status else True
+
+
+def _sync_source_and_job(conn, incident_no, date, data):
+    # Preserve source snapshots only when they change, including administrative details.
+    import hashlib
+    if data.get("NativeID") and data.get("DetailsAvailable", True):
+        payload = json.dumps({k: data.get(k) for k in ("RawType", "Details", "Location", "Location Desc.", "SourceEvents")}, sort_keys=True)
+        conn.execute("INSERT OR IGNORE INTO incident_source_events VALUES (?, ?, ?, ?, ?)",
+                     (data.get("Source", "CHP"), data["NativeID"], hashlib.sha256(payload.encode()).hexdigest(), pst_timestamp_str(), payload))
+    row = conn.execute("SELECT * FROM incidents WHERE incident_no=? AND date=?", (incident_no, date)).fetchone()
+    sync_job(conn, dict(row))

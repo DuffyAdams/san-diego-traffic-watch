@@ -58,6 +58,17 @@ TESTMODE = env_bool("TESTMODE")
 # LLM enrichment: use GLM Flash for incident summaries.
 DEFAULT_IMMEDIATE_LLM_MODEL = "z-ai/glm-5.3-flash"
 IMMEDIATE_LLM_MODEL = DEFAULT_IMMEDIATE_LLM_MODEL
+LLM_REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT", "low")
+if LLM_REASONING_EFFORT not in {"low", "high", "max"}:
+    raise ValueError("LLM_REASONING_EFFORT must be low, high, or max for GLM Flash")
+LLM_MAX_TOKENS = env_number("LLM_MAX_TOKENS", 2048, int, minimum=256)
+LLM_TIMEOUT_SECONDS = env_number("LLM_TIMEOUT_SECONDS", 45, float, minimum=1)
+DESCRIPTION_COMPACT = env_bool("DESCRIPTION_COMPACT", True)
+DESCRIPTION_TEMPLATES = env_bool("DESCRIPTION_TEMPLATES", True)
+DESCRIPTION_DEBOUNCE_SECONDS = env_number("DESCRIPTION_DEBOUNCE_SECONDS", 30, float, minimum=0)
+DESCRIPTION_MAX_WAIT_SECONDS = env_number("DESCRIPTION_MAX_WAIT_SECONDS", 90, float, minimum=0)
+DESCRIPTION_INPUT_CHARS = env_number("DESCRIPTION_INPUT_CHARS", 2400, int, minimum=400)
+DESCRIPTION_MAX_ATTEMPTS = env_number("DESCRIPTION_MAX_ATTEMPTS", 5, int, minimum=1)
 
 # San Diego traffic sources use the local Pacific clock, including daylight time.
 PACIFIC = pytz.timezone("America/Los_Angeles")
@@ -88,6 +99,13 @@ def pst_timestamp_str(dt=None):
 
 # ── External API URLs ────────────────────────────────────────────────────────
 CHP_SCRAPE_URL  = "https://cad.chp.ca.gov/traffic.aspx?__EVENTTARGET=ddlComCenter&ddlComCenter=BCCC"
+CHP_XML_URL = "https://media.chp.ca.gov/sa_xml/sa.xml"
+CHP_COLLECTOR = os.environ.get("CHP_COLLECTOR", "xml")
+if CHP_COLLECTOR not in {"xml", "html", "compare"}:
+    raise ValueError("CHP_COLLECTOR must be xml, html, or compare")
+CHP_HTML_FALLBACK = env_bool("CHP_HTML_FALLBACK", True)
+CHP_POLL_SECONDS = env_number("CHP_POLL_SECONDS", 30, float, minimum=15)
+CHP_MISSING_POLLS = env_number("CHP_MISSING_POLLS", 2, int, minimum=1)
 SDPD_SCRAPE_URL = "https://webapps.sandiego.gov/sdpdonline"
 SDFD_API_URL    = "https://webapps.sandiego.gov/SDFireDispatch/api/v1/Incidents"
 SDSO_API_URL    = os.environ.get("SDSO_API_URL")
@@ -140,6 +158,9 @@ llm_client = OpenAI(
     # The SDK requires a non-empty value during construction. Calls are
     # explicitly gated on LLM_API_CONFIGURED in llm.py.
     api_key=GPT_KEY or "not-configured",
+    timeout=LLM_TIMEOUT_SECONDS,
+    # Durable jobs own retry policy and account for each provider attempt.
+    max_retries=0,
 )
 
 # ── Geocoding cache (shared across modules) ──────────────────────────────────

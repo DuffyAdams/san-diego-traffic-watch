@@ -12,10 +12,10 @@ class StatsComparisonTests(unittest.TestCase):
         self.conn = sqlite3.connect(":memory:")
         self.addCleanup(self.conn.close)
         self.cur = self.conn.cursor()
-        self.cur.execute("CREATE TABLE incidents (timestamp TEXT, source TEXT)")
+        self.cur.execute("CREATE TABLE incidents (timestamp TEXT, source TEXT, related_incident TEXT)")
 
     def insert(self, timestamp, count=1, source="CHP"):
-        self.cur.executemany("INSERT INTO incidents VALUES (?, ?)",
+        self.cur.executemany("INSERT INTO incidents (timestamp, source) VALUES (?, ?)",
                              [(timestamp.strftime("%Y-%m-%d %H:%M:%S"), source)] * count)
 
     def test_week_and_month_align_days_and_match_partial_final_day(self):

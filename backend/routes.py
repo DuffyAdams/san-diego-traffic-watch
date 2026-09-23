@@ -24,6 +24,7 @@ from .api_support import BoundedTTLCache, KeyedLockPool, RateLimiter
 from .db import read_incidents, with_user_like_state
 from .logging_utils import safe_print
 from .runtime_metrics import get_runtime_metrics, record_api_request
+from .description_jobs import usage_metrics
 from .sqlite_utils import sqlite_connection
 from .stats import (
     build_incident_stats_payload as _build_incident_stats_payload,
@@ -426,14 +427,14 @@ def get_dashboard_metrics():
     with sqlite_connection(DB_FILE) as conn:
         cur = conn.cursor()
 
-        total_incidents = _count_query(cur, "SELECT COUNT(*) FROM incidents")
-        active_incidents = _count_query(cur, "SELECT COUNT(*) FROM incidents WHERE active = 1")
+        total_incidents = _count_query(cur, "SELECT COUNT(*) FROM incidents WHERE related_incident IS NULL")
+        active_incidents = _count_query(cur, "SELECT COUNT(*) FROM incidents WHERE active = 1 AND related_incident IS NULL")
         incidents_in_range = _count_query(
             cur,
-            f"SELECT COUNT(*) FROM incidents WHERE {incident_clause}",
+            f"SELECT COUNT(*) FROM incidents WHERE related_incident IS NULL AND {incident_clause}",
             tuple(incident_params),
         )
-        tracked_days = _count_query(cur, "SELECT COUNT(DISTINCT date) FROM incidents") or 0
+        tracked_days = _count_query(cur, "SELECT COUNT(DISTINCT date) FROM incidents WHERE related_incident IS NULL") or 0
 
         comments_in_range = _count_query(
             cur,
@@ -484,6 +485,7 @@ def get_dashboard_metrics():
     public_api_health = _probe_url(f"{TRAFFIC_APP_PUBLIC_URL}/api/healthz")
 
     payload = {
+        "llmUsage": usage_metrics(DB_FILE),
         "rangeKey": range_key,
         "rangeLabel": range_label,
         "totalIncidentsIngested": total_incidents,
