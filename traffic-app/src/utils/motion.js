@@ -19,3 +19,10 @@ function respectMotion(transition) {
 
 export const fade = respectMotion(svelteFade);
 export const slide = respectMotion(svelteSlide);
+
+// Reveal from the bottom edge; closing retraces the same path downward.
+// Clipping preserves the overlay's layout and scroll area throughout motion.
+export const revealUp = respectMotion((node, options) => ({
+  ...options,
+  css: (t) => `clip-path: inset(${(1 - t) * 100}% 0 0 0)`,
+}));

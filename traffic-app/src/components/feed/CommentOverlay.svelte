@@ -36,7 +36,7 @@
     out:slide={{ duration: 200 }}
 >
     <button class="close-comments" type="button" on:click={handleClose} aria-label={t("actions.closeComments")}>
-        <X size={20} />
+        <X size={18} aria-hidden="true" />
     </button>
     <h3 class="comments-title">
         <MessageSquare size={18} />
@@ -116,28 +116,27 @@
         position: absolute;
         top: 0.8rem;
         right: 0.8rem;
-        background: rgba(255, 51, 51, 0.05);
-        color: var(--accent-secondary);
-        border: 1px solid var(--accent-secondary);
+        background: transparent;
+        color: var(--text-muted);
+        border: none;
         font-size: 1rem;
         line-height: 1;
         cursor: pointer;
         z-index: 11;
-        width: 24px;
-        height: 24px;
+        width: 32px;
+        height: 32px;
         display: flex;
         align-items: center;
         justify-content: center;
         border-radius: 10px;
         corner-shape: squircle;
         padding: 0;
-        transition: all 0.15s ease;
-        outline: none;
+        transition: background-color 0.15s ease, color 0.15s ease;
     }
 
     .close-comments:hover {
-        background: var(--accent-secondary);
-        color: #000;
+        background: var(--hover-bg);
+        color: var(--text-main);
     }
 
     .comments-title {
@@ -145,6 +144,7 @@
         color: var(--text-main);
         font-weight: 720;
         margin: 0 0 0.8rem 0;
+        padding-right: 2rem;
         display: flex;
         align-items: center;
         gap: 0.5rem;

@@ -69,6 +69,8 @@ const messages = {
       resetTypeFilters: "Reset type filters",
       resetLocationFilters: "Reset location filters",
       closeComments: "Close comments",
+      expandDescription: "Expand description",
+      collapseDescription: "Collapse description",
     },
     comments: {
       title: ({ count }) => `Comments (${formatNumber(count)})`,

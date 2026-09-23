@@ -1,6 +1,7 @@
 <script>
+    import { animateHeight } from "../../utils/animateHeight.js";
     import { createEventDispatcher } from "svelte";
-    import { slide } from "../../utils/motion.js";
+    import { slide, revealUp } from "../../utils/motion.js";
     import CommentOverlay from "./CommentOverlay.svelte";
     import {
         truncateDescription,
@@ -14,6 +15,8 @@
     import Share2 from "lucide-svelte/icons/share-2";
     import Info from "lucide-svelte/icons/info";
     import X from "lucide-svelte/icons/x";
+    import ChevronDown from "lucide-svelte/icons/chevron-down";
+    import ChevronUp from "lucide-svelte/icons/chevron-up";
     import IncidentIcon from "../shared/IncidentIcon.svelte";
     import { mapPanTo } from "../../stores/appStore.js";
     import LazyImage from "../shared/LazyImage.svelte";
@@ -160,6 +163,7 @@
             {#if post.details && post.details.length > 0}
                 <button
                     class="raw-details-button"
+                    aria-expanded={showRawDetails}
                     on:click={toggleRawDetails}
                     title={t("actions.viewRawDetails")}
                     aria-label={t("actions.viewRawDetails")}
@@ -197,7 +201,7 @@
             {#if showRawDetails}
                 <div
                     class="raw-details-inline-overlay"
-                    transition:slide={{ duration: 200 }}
+                    transition:revealUp={{ duration: 280 }}
                 >
                     <div class="raw-details-inline-header">
                         <h4>{t("actions.rawEventDetails")}</h4>
@@ -254,24 +258,35 @@
                         </div>
                     </div>
                 {/if}
-                {#if post.description}
-                    <span class="description-text">
-                        {@html post.showFullDescription
-                            ? highlightFuzzy(post.description, searchQuery)
-                            : highlightFuzzy(truncateDescription(post.description), searchQuery)}
-                    </span>
-                    {#if post.description.length > 200}
-                        <button
-                            class="more-button"
-                            on:click={handleToggleDescription}
-                            type="button"
-                        >
-                            {post.showFullDescription ? "[-]" : "[+]"}
-                        </button>
-                    {/if}
-                {:else}
-                    <span class="no-data">{t("fallback.noDataAvailable")}</span>
-                {/if}
+                <div use:animateHeight>
+                    <div style="display: flow-root;">
+                        {#if post.description}
+                            <span class="description-text">
+                                {@html post.showFullDescription
+                                    ? highlightFuzzy(post.description, searchQuery)
+                                    : highlightFuzzy(truncateDescription(post.description), searchQuery)}
+                            </span>
+                            {#if post.description.length > 200}
+                                <button
+                                    class="more-button"
+                                    on:click={handleToggleDescription}
+                                    type="button"
+                                    aria-expanded={!!post.showFullDescription}
+                                    aria-label={t(post.showFullDescription ? "actions.collapseDescription" : "actions.expandDescription")}
+                                    title={t(post.showFullDescription ? "actions.collapseDescription" : "actions.expandDescription")}
+                                >
+                                    {#if post.showFullDescription}
+                                        <ChevronUp size={16} aria-hidden="true" />
+                                    {:else}
+                                        <ChevronDown size={16} aria-hidden="true" />
+                                    {/if}
+                                </button>
+                            {/if}
+                        {:else}
+                            <span class="no-data">{t("fallback.noDataAvailable")}</span>
+                        {/if}
+                    </div>
+                </div>
             </div>
             <div class="post-actions">
                 <button
@@ -768,28 +783,27 @@
     }
 
     .more-button {
-        background: rgba(51, 102, 255, 0.05);
-        border: 1px solid var(--accent-primary);
-        color: var(--accent-primary);
-        padding: 0.2rem 0.5rem;
-        margin-left: 0.5rem;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        margin-left: 0.25rem;
         margin-top: 0.25rem;
-        font-size: 0.7rem;
-        font-weight: bold;
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        transition: all 0.15s ease;
-        text-transform: uppercase;
+        justify-content: center;
+        transition: background-color 0.15s ease, color 0.15s ease;
         border-radius: 9px;
         corner-shape: squircle;
         vertical-align: middle;
     }
 
     .more-button:hover {
-        background: var(--accent-primary);
-        color: #000;
-        box-shadow: 0 0 8px rgba(51, 102, 255, 0.4);
+        background: var(--hover-bg);
+        color: var(--text-main);
     }
 
     .post-actions {

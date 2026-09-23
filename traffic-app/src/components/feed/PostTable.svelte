@@ -1,4 +1,5 @@
 <script>
+    import { animateHeight } from "../../utils/animateHeight.js";
     import { createEventDispatcher } from "svelte";
     import { slide } from "../../utils/motion.js";
     import {
@@ -183,27 +184,31 @@
                     </div>
                     <div class="expanded-info">
                         <div class="post-description">
-                            {#if post.description}
-                                <span class="description-text">
-                                    {@html post.showFullDescription
-                                        ? highlightFuzzy(post.description, searchQuery)
-                                        : highlightFuzzy(truncateDescription(post.description), searchQuery)}
-                                </span>
-                                {#if post.description.length > 200}
-                                    <button
-                                        class="more-button"
-                                        on:click={(e) =>
-                                            handleToggleDescription(e, post.id)}
-                                        type="button"
-                                    >
-                                        {post.showFullDescription
-                                            ? "[-]"
-                                            : "[+]"}
-                                    </button>
-                                {/if}
-                            {:else}
-                                <span class="no-data">{t("fallback.noDataAvailable")}</span>
-                            {/if}
+                            <div use:animateHeight>
+                                <div style="display: flow-root;">
+                                    {#if post.description}
+                                        <span class="description-text">
+                                            {@html post.showFullDescription
+                                                ? highlightFuzzy(post.description, searchQuery)
+                                                : highlightFuzzy(truncateDescription(post.description), searchQuery)}
+                                        </span>
+                                        {#if post.description.length > 200}
+                                            <button
+                                                class="more-button"
+                                                on:click={(e) =>
+                                                    handleToggleDescription(e, post.id)}
+                                                type="button"
+                                            >
+                                                {post.showFullDescription
+                                                    ? "[-]"
+                                                    : "[+]"}
+                                            </button>
+                                        {/if}
+                                    {:else}
+                                        <span class="no-data">{t("fallback.noDataAvailable")}</span>
+                                    {/if}
+                                </div>
+                            </div>
                         </div>
                         <div class="expanded-actions">
                             <button
