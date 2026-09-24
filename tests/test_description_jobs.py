@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from backend import db, description_jobs as jobs
+from backend.descriptions import source_description
 from backend.sqlite_utils import sqlite_connection
 
 
@@ -48,6 +49,79 @@ class DescriptionJobTests(unittest.TestCase):
         self.assertFalse(jobs.run_one(self.path, generate))
         self.assertEqual(generate.call_count, 1)
         self.assertEqual(self.row()['status'], 'complete')
+
+    def test_non_chp_inserts_and_updates_use_source_descriptions_without_jobs(self):
+        generate = Mock()
+        for source in ('SDFD', 'SDPD', 'SDSO', 'UNKNOWN', ''):
+            with self.subTest(source=source):
+                self.save(Source=source, **{'No.': source or 'missing'})
+                self.save(Details=['Units: E1, E2'], Location='200 MAIN ST')
+                with sqlite_connection(self.path, row_factory=sqlite3.Row) as conn:
+                    row = dict(conn.execute('SELECT * FROM incidents WHERE incident_no=?',
+                                            (source or 'missing',)).fetchone())
+                    self.assertEqual(conn.execute('SELECT COUNT(*) FROM description_jobs').fetchone()[0], 0)
+                self.assertEqual(row['description'], source_description(row))
+                self.assertIn('Units: E1, E2', row['description'])
+                self.assertEqual(row['description_origin'], 'source')
+                self.assertIsNone(row['llm_pending_at'])
+                self.assertFalse(jobs.run_one(self.path, generate))
+        generate.assert_not_called()
+
+    def legacy_non_chp_job(self, status='pending', active=1):
+        self.save()
+        with sqlite_connection(self.path) as conn:
+            payload = {**self.incident, 'Source': 'SDFD'}
+            conn.execute("UPDATE incidents SET source='SDFD', active=?, description='Old AI summary', description_origin='ai'", (active,))
+            conn.execute('UPDATE description_jobs SET payload_json=?, status=?, due_at=0',
+                         (json.dumps(payload), status))
+
+    def test_restart_retires_non_chp_pending_and_failed_jobs_even_if_inactive(self):
+        generate = Mock()
+        for status, active in (('pending', 1), ('pending', 0), ('failed', 0)):
+            with self.subTest(status=status, active=active):
+                self.legacy_non_chp_job(status, active)
+                db.init_db()
+                db.init_db()
+                self.assertEqual(self.row()['status'], 'source')
+                self.assertIsNone(self.row()['lease_token'])
+                row = self.row('incidents')
+                self.assertEqual(row['active'], active)
+                self.assertEqual(row['description'], source_description(row))
+                self.assertEqual(row['description_origin'], 'source')
+                self.assertIsNone(row['llm_pending_at'])
+                self.assertFalse(jobs.run_one(self.path, generate))
+        generate.assert_not_called()
+
+    def test_worker_retires_legacy_non_chp_job_without_calling_generator(self):
+        self.legacy_non_chp_job()
+        generate = Mock()
+        self.assertTrue(jobs.run_one(self.path, generate))
+        self.assertEqual(self.row()['status'], 'source')
+        self.assertFalse(jobs.run_one(self.path, generate))
+        generate.assert_not_called()
+
+    def test_restart_converts_active_non_chp_ai_summary_without_pending_work(self):
+        self.legacy_non_chp_job(status='complete')
+        with sqlite_connection(self.path) as conn:
+            conn.execute('UPDATE incidents SET llm_pending_at=NULL, likes=7')
+        db.init_db()
+        row = self.row('incidents')
+        self.assertEqual(row['description'], source_description(row))
+        self.assertEqual(row['description_origin'], 'source')
+        self.assertEqual(row['likes'], 7)
+        self.assertEqual(self.row()['status'], 'source')
+
+    def test_non_chp_source_update_invalidates_inflight_ai_result(self):
+        self.save()
+        def generate(*args, **kwargs):
+            self.save(Source='SDFD', Details=['Units: E2'])
+            return 'Old AI summary', 4
+        jobs.run_one(self.path, generate)
+        row = self.row('incidents')
+        self.assertEqual(row['description'], source_description(row))
+        self.assertEqual(row['description_origin'], 'source')
+        self.assertEqual(self.row()['status'], 'source')
+        self.assertIsNone(self.row()['lease_token'])
 
     def test_type_and_location_changes_queue_new_version(self):
         self.save()

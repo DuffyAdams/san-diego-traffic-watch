@@ -45,7 +45,7 @@ The current dark-mode UI is shown below using deterministic local incident data.
 - Database: SQLite file at `traffic_data.db`
 - SQLite lifecycle: deterministic commit, rollback, and connection cleanup in [backend/sqlite_utils.py](backend/sqlite_utils.py)
 - Geocoding: cached Nominatim and ArcGIS lookups in [backend/geocoding.py](backend/geocoding.py)
-- LLM summaries: OpenRouter-backed client in [backend/llm.py](backend/llm.py)
+- CHP-only LLM summaries: OpenRouter-backed client in [backend/llm.py](backend/llm.py); SDPD, SDFD, and SDSO use local source descriptions.
 
 ## CHP collection and AI descriptions
 
