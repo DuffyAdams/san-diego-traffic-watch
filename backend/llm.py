@@ -8,7 +8,7 @@ from .config import (
     LLM_MAX_TOKENS, LLM_REASONING_EFFORT,
 )
 from .logging_utils import safe_print
-from .descriptions import source_description, usable_description, dispatch_log_description
+from .descriptions import source_description, usable_description, dispatch_log_description, uses_ai_description
 from .incident_facts import compact_input, incident_facts, severity_for, POLICY_VERSION
 from .sqlite_utils import sqlite_connection
 from .summary_validation import SummaryValidationError, safe_error_code
@@ -89,6 +89,8 @@ def generate_description(data, raise_on_error=False, usage_context=None):
     """Return prose plus deterministic severity; mock/fallback paths cost no calls."""
     facts = incident_facts(data)
     severity = severity_for(facts)
+    if not uses_ai_description(data):
+        return source_description(data), severity
     if TESTMODE:
         return (f"Mock incident summary for {data.get('Location')}.", severity)
     if not LLM_API_CONFIGURED:

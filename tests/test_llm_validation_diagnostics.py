@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 
-from backend import llm, description_jobs as jobs
+from backend import db, llm, description_jobs as jobs
 
 
 def response(content, finish='stop'):
@@ -61,8 +61,12 @@ class ValidationDiagnosticsTests(unittest.TestCase):
         for result, code in cases:
             with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
                 path = os.path.join(directory, 'test.db')
+                db.init_db(path)
                 with sqlite3.connect(path) as conn:
-                    jobs.init_schema(conn)
+                    conn.execute('''INSERT INTO incidents
+                        (incident_no,date,source,type,location,description,description_origin)
+                        VALUES ('test','2026-09-23','CHP','Collision','Test Rd',
+                                'Traffic collision reported at Test Rd.','source')''')
                     conn.execute('''INSERT INTO description_jobs
                         (incident_no,date,desired_hash,facts_json,payload_json,trigger_reason,first_queued_at,due_at)
                         VALUES ('test','2026-09-23','hash','{}',?,'initial',0,0)''',

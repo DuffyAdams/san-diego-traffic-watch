@@ -15,6 +15,8 @@ class MonitorCycleTests(unittest.TestCase):
         db.init_db(self.path)
         self.patch = patch.object(monitor, 'DB_FILE', self.path)
         self.patch.start()
+        self.db_patch = patch.object(db, 'DB_FILE', self.path)
+        self.db_patch.start()
         self.schedule = patch.object(monitor, '_schedule_description_refresh')
         self.schedule.start()
         with sqlite_connection(self.path) as conn:
@@ -23,6 +25,7 @@ class MonitorCycleTests(unittest.TestCase):
 
     def tearDown(self):
         self.patch.stop()
+        self.db_patch.stop()
         self.schedule.stop()
         self.temp.cleanup()
 

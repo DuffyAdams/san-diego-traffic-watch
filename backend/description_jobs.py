@@ -13,7 +13,7 @@ from .config import (
 )
 from .incident_facts import incident_facts, fact_hash, template_description, severity_for, urgent_change
 from .sqlite_utils import sqlite_connection
-from .descriptions import source_description
+from .descriptions import source_description, uses_ai_description
 from .summary_validation import safe_error_code
 
 
@@ -61,6 +61,15 @@ def sync_job(conn, row, now=None):
     """Called inside the source-write transaction; never contacts the provider."""
     now = time.time() if now is None else now
     key = row["incident_no"], row["date"]
+    if not uses_ai_description(row):
+        # Also retire legacy/retry jobs and invalidate any older worker's lease.
+        conn.execute("""UPDATE description_jobs SET status='source',
+            completed_hash=desired_hash, lease_token=NULL, lease_until=NULL, last_error=NULL
+            WHERE incident_no=? AND date=?""", key)
+        conn.execute("""UPDATE incidents SET description=?, severity=?,
+            description_origin='source', llm_pending_at=NULL WHERE incident_no=? AND date=?""",
+            (source_description(row), severity_for(incident_facts(row)), *key))
+        return
     old = conn.execute("SELECT * FROM description_jobs WHERE incident_no = ? AND date = ?", key).fetchone()
     old = dict(old) if old else None
     if row.get("related_incident"):
@@ -137,6 +146,10 @@ def run_one(db_file, generate, now=None):
         latest = conn.execute("SELECT * FROM description_jobs WHERE incident_no = ? AND date = ?", key).fetchone()
         if latest["desired_hash"] != version or latest["status"] != "pending":
             conn.execute("UPDATE description_jobs SET lease_token=NULL, lease_until=NULL WHERE incident_no=? AND date=? AND lease_token=?", (*key, token))
+            return True
+        incident = conn.execute("SELECT * FROM incidents WHERE incident_no=? AND date=?", key).fetchone()
+        if incident is not None and not uses_ai_description(dict(incident)):
+            sync_job(conn, dict(incident), now=now)
             return True
     context = {"db_file": db_file, "incident_no": key[0], "date": key[1],
                "input_hash": version, "trigger_reason": job["trigger_reason"]}

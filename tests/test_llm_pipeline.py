@@ -85,7 +85,7 @@ class ImmediateLlmPipelineTests(unittest.TestCase):
             self.assertRaisesRegex(RuntimeError, "temporary provider failure"),
         ):
             llm.generate_description(
-                {"No.": "TEST-1", "Details": ["Lane blocked"]},
+                {"No.": "TEST-1", "Source": "CHP", "Details": ["Lane blocked"]},
                 raise_on_error=True,
             )
 

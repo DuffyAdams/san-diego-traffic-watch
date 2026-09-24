@@ -10,6 +10,11 @@ PLACEHOLDERS = frozenset({
 })
 
 
+def uses_ai_description(data):
+    """Only explicitly identified CHP incidents may use paid summaries."""
+    return (data.get("Source") or data.get("source")) == "CHP"
+
+
 def usable_description(value):
     return isinstance(value, str) and value.strip().lower() not in PLACEHOLDERS
 

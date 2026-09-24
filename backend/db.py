@@ -167,6 +167,14 @@ def init_db(db_file=None):
             cur.execute(statement)
 
         conn.row_factory = sqlite3.Row
+        # Apply the CHP-only policy to visible records and unfinished legacy work,
+        # including jobs for incidents that disappeared before this restart.
+        for row in conn.execute("""SELECT * FROM incidents AS i
+            WHERE source IS NOT 'CHP' AND (active=1 OR llm_pending_at IS NOT NULL
+                OR EXISTS (SELECT 1 FROM description_jobs AS j
+                    WHERE j.incident_no=i.incident_no AND j.date=i.date
+                      AND j.status IN ('pending', 'failed')))""").fetchall():
+            sync_job(conn, dict(row))
         # Recover legacy pending work without re-summarizing completed history.
         for row in conn.execute("SELECT * FROM incidents WHERE active=1 AND llm_pending_at IS NOT NULL").fetchall():
             sync_job(conn, dict(row))

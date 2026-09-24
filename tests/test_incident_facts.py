@@ -71,9 +71,9 @@ class IncidentFactTests(unittest.TestCase):
 
     def test_category_only_assistance_templates_preserve_neutral_notes(self):
         cases = [
-            ('Assist with Construction', '0530', 'CHP reports construction assistance at Sr94 W / I5 N. Location note: 0530.'),
-            ('Traffic Escort', '', 'CHP reports a traffic escort call at Sr94 W / I5 N.'),
-            ('Escort', 'NB AT SHELL STATION', 'CHP reports an escort call at Sr94 W / I5 N. Location note: NB AT SHELL STATION.'),
+            ('Assist with Construction', '0530', 'Construction assistance at Sr94 W / I5 N. Location note: 0530.'),
+            ('Traffic Escort', '', 'A traffic escort call at Sr94 W / I5 N.'),
+            ('Escort', 'NB AT SHELL STATION', 'An escort call at Sr94 W / I5 N. Location note: NB AT SHELL STATION.'),
         ]
         for kind, note, expected in cases:
             with self.subTest(kind=kind):
@@ -109,7 +109,7 @@ class IncidentFactTests(unittest.TestCase):
         facts = incident_facts({'Source': 'CHP', 'Type': 'ESCORT for Road Conditions',
             'Location': '1722 E Main St', 'Location Desc.': 'El Cajon CHP Office', 'Area': 'El Cajon'})
         self.assertEqual(template_description(facts),
-            'CHP reports an escort call for road conditions at 1722 E Main St. Location note: El Cajon CHP Office.')
+            'An escort call for road conditions at 1722 E Main St. Location note: El Cajon CHP Office.')
 
     def test_policy_refreshes_even_unchanged_source_facts(self):
         import hashlib
