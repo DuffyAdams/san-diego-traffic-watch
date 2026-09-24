@@ -36,6 +36,8 @@ To revert collection independently, set `CHP_COLLECTOR=html`. To remove routine 
 
 ## Queue and accounting
 
+Only CHP incidents are eligible for AI API calls. SDPD, SDFD, SDSO, and unknown sources use the shared factual source-description formatter, including on updates. Startup converts active non-CHP descriptions and retires unfinished non-CHP jobs (including inactive incidents); workers and the generation entry point also enforce this restriction. Historical provider accounting is retained.
+
 Each job contains the newest desired fact hash, source payload, completed hash, due time, attempt count, status, and lease. Jobs survive restarts. Two workers drain bounded portions of the queue; updates to a leased incident wait for the in-flight attempt to finish. Superseded claims are skipped before calling the provider when possible, and stale results cannot overwrite newer source facts.
 
 Initial incidents and recognized urgent changes are eligible immediately. Routine changes coalesce for up to 90 seconds by default, plus worker/monitor scheduling time. Material changes immediately replace an obsolete AI description with a factual source fallback and update deterministic severity, so provider downtime does not leave an old lane-closure claim as the current description.

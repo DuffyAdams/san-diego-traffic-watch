@@ -54,13 +54,28 @@ class DescriptionTests(unittest.TestCase):
         self.assertEqual(source_description({"Details": {"unexpected": "data"}}), "Incident.")
 
     def test_ai_failure_or_empty_output_uses_specific_fallback(self):
+        incident = {**self.incident, 'Source': 'CHP'}
         for response in (None, "", '{"summary": null}', '{"summary":""}', '{}', 'invalid'):
             with self.subTest(response=response):
                 result = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=response))])
                 with patch.object(llm, "TESTMODE", False), patch.object(llm, "LLM_API_CONFIGURED", True), patch.object(llm, "_call_llm", return_value=result):
-                    self.assertEqual(llm.generate_description(self.incident), (self.expected, None))
+                    self.assertEqual(llm.generate_description(incident), (source_description(incident), None))
                     with self.assertRaises((ValueError, TypeError)):
-                        llm.generate_description(self.incident, raise_on_error=True)
+                        llm.generate_description(incident, raise_on_error=True)
+
+    def test_non_chp_direct_generation_never_calls_or_records_ai(self):
+        for source in ('SDFD', 'SDPD', 'SDSO', 'UNKNOWN', None):
+            for testmode in (False, True):
+                with self.subTest(source=source, testmode=testmode):
+                    incident = {**self.incident, 'Source': source}
+                    with (patch.object(llm, 'TESTMODE', testmode),
+                          patch.object(llm, 'LLM_API_CONFIGURED', True),
+                          patch.object(llm, '_call_llm') as call,
+                          patch.object(llm, 'record_attempt') as record):
+                        self.assertEqual(llm.generate_description(incident, raise_on_error=True),
+                                         (source_description(incident), None))
+                        call.assert_not_called()
+                        record.assert_not_called()
 
     def test_valid_ai_summary_is_preserved(self):
         response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
@@ -100,9 +115,10 @@ class DescriptionTests(unittest.TestCase):
             path = os.path.join(temp_dir, "incidents.db")
             with patch.object(db, "DB_FILE", path):
                 db.init_db()
-                db.save_or_update_incident(self.incident, generate_description_on_insert=False)
+                incident = {**self.incident, 'Source': 'CHP'}
+                db.save_or_update_incident(incident, generate_description_on_insert=False)
                 existing = db.fetch_existing_incidents([("SDSO-TEST", "2026-09-18")])[("SDSO-TEST", "2026-09-18")]
-                changed = {**self.incident, "Location": "200 MAIN ST"}
+                changed = {**incident, "Location": "200 MAIN ST"}
                 db.save_or_update_incident(changed, existing_record=existing, generate_description_on_insert=False)
                 self.assertIn("200 MAIN ST", db.read_incidents()[0]["description"])
                 with closing(sqlite3.connect(path)) as conn:
