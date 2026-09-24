@@ -2,15 +2,12 @@
     export let events = [];
 
     // Normalize headline text before it enters the scrolling feed ticker.
-    function formatText(str, length = 80) {
+    function formatText(str) {
         if (!str) return "";
-        let cleanStr = str
+        return String(str)
             .replace(/[\r\n]+/g, " ")
             .replace(/\s+/g, " ")
             .trim();
-        return cleanStr.length > length
-            ? cleanStr.substring(0, length) + "..."
-            : cleanStr;
     }
 </script>
 
@@ -19,7 +16,9 @@
             <span class="blinking-dot"></span>
             LATEST
         </div>
-        <div class="ticker-content">
+        <!-- Keyboard users need to focus this scroll region in reduced-motion mode. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <div class="ticker-content" tabindex={events.length ? 0 : -1} role="region" aria-label="Latest incidents">
             <div class="ticker-track">
                 <div class="ticker-group">
                     {#each events as event}
@@ -30,17 +29,11 @@
                         >
                             <span class="ticker-time">[{event.time}]</span>
                             <span class="ticker-type"
-                                >{formatText(
-                                    event.type,
-                                    30,
-                                ).toUpperCase()}</span
+                                >{formatText(event.type).toUpperCase()}</span
                             >
                             <span class="ticker-desc">
                                 {event.location
-                                    ? formatText(
-                                          event.location,
-                                          40,
-                                      ).toUpperCase()
+                                    ? formatText(event.location).toUpperCase()
                                     : "LOCATION PENDING"}
                             </span>
                         </div>
@@ -56,17 +49,11 @@
                         >
                             <span class="ticker-time">[{event.time}]</span>
                             <span class="ticker-type"
-                                >{formatText(
-                                    event.type,
-                                    30,
-                                ).toUpperCase()}</span
+                                >{formatText(event.type).toUpperCase()}</span
                             >
                             <span class="ticker-desc">
                                 {event.location
-                                    ? formatText(
-                                          event.location,
-                                          40,
-                                      ).toUpperCase()
+                                    ? formatText(event.location).toUpperCase()
                                     : "LOCATION PENDING"}
                             </span>
                         </div>
@@ -96,6 +83,7 @@
     }
 
     .ticker-label {
+        flex: 0 0 auto;
         background: var(--primary-lightest);
         color: var(--accent-primary);
         padding: 0 1rem;
@@ -131,6 +119,7 @@
 
     .ticker-content {
         flex: 1;
+        min-width: 0;
         overflow: hidden;
         position: relative;
         height: 100%;
@@ -155,15 +144,26 @@
     .ticker-track {
         display: flex;
         width: max-content;
+        min-width: 200%;
+        flex-shrink: 0;
         animation: scroll 45s linear infinite;
     }
 
-    .ticker-track:hover {
+    /* Touch browsers retain :hover after a tap; never let that freeze news. */
+    @media (hover: hover) and (pointer: fine) {
+        .ticker-content:hover .ticker-track {
+            animation-play-state: paused;
+        }
+    }
+
+    .ticker-content:focus-visible .ticker-track {
         animation-play-state: paused;
     }
 
     .ticker-group {
         display: flex;
+        flex: 1 0 auto;
+        box-sizing: border-box;
         gap: 3rem;
         padding-right: 3rem;
     }
@@ -216,6 +216,24 @@
         }
         100% {
             transform: translateX(-50%);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .ticker-content {
+            overflow-x: auto;
+            mask-image: none;
+            -webkit-mask-image: none;
+        }
+        .ticker-track {
+            animation: none;
+            min-width: 100%;
+        }
+        .blinking-dot {
+            animation: none;
+        }
+        .ticker-group[aria-hidden="true"] {
+            display: none;
         }
     }
 

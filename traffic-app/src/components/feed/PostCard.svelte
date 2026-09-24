@@ -773,6 +773,7 @@
     }
 
     .description-text {
+        display: block;
         white-space: pre-wrap;
     }
 
@@ -786,13 +787,13 @@
         background: transparent;
         border: none;
         color: var(--text-muted);
-        width: 28px;
-        height: 28px;
+        width: 44px;
+        height: 44px;
         padding: 0;
-        margin-left: 0.25rem;
+        margin-left: auto;
         margin-top: 0.25rem;
         cursor: pointer;
-        display: inline-flex;
+        display: flex;
         align-items: center;
         justify-content: center;
         transition: background-color 0.15s ease, color 0.15s ease;

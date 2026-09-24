@@ -13,7 +13,7 @@
     export let darkMode = true;
     export let condensedView = false;
     export let accessibilityMode = false;
-    export let activeSource = "all";
+    export let activeSource = "CHP";
 
     const dispatch = createEventDispatcher();
     let currentTime = "";

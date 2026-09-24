@@ -14,6 +14,9 @@ from scripts.backfill_descriptions import backfill
 
 class DescriptionTests(unittest.TestCase):
     def setUp(self):
+        accounting = patch.object(llm, "record_attempt")
+        accounting.start()
+        self.addCleanup(accounting.stop)
         self.incident = {
             "No.": "SDSO-TEST", "Date": "2026-09-18",
             "Timestamp": "2026-09-18 12:00:00", "Source": "SDSO",
@@ -50,7 +53,7 @@ class DescriptionTests(unittest.TestCase):
             "Source": "CHP", "Type": "Traffic Collision", "Location": "I-5",
             "Details": '["No injuries reported", "Road is NOT closed"]',
         })
-        self.assertIn("No injuries reported; Road is NOT closed.", description)
+        self.assertIn("No injuries reported; Road is not closed.", description)
         self.assertEqual(source_description({"Details": {"unexpected": "data"}}), "Incident.")
 
     def test_ai_failure_or_empty_output_uses_specific_fallback(self):

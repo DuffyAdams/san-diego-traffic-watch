@@ -6,12 +6,12 @@ import re
 
 from .config import DESCRIPTION_COMPACT, DESCRIPTION_INPUT_CHARS
 
-POLICY_VERSION = "facts-v1"
+POLICY_VERSION = "facts-v2"
 _WRAPPER = re.compile(r"\[(?:\d+|Shared|Notification|CHP|FSP|Appended, [^\]]+)\]", re.I)
 _TIME = re.compile(r"^\[(?:\d{4}-\d\d-\d\d[ T])?\d{1,2}:\d\d(?::\d\d)?(?:\s*[AP]M)?\]\s*", re.I)
 _ADMIN = re.compile(
     r"(?:Unit (?:At Scene|Enroute|Assigned|Cleared)|"
-    r"\[FSP\] has closed their incident \[[^\]]+\]|"
+    r"\[(?:FSP|CHP)\] has closed their incident \[[^\]]+\]|"
     r"(?:Service Area|Division|Neighborhood):.*)", re.I
 )
 _PHONE = re.compile(r"\b\d{3}[- .]\d{3}[- .]\d{4}\b")
@@ -38,6 +38,7 @@ def narrative_lines(value):
         line = _TIME.sub("", raw)
         # Check before removing wrappers so FSP closure isn't mistaken for a road closure.
         check = re.sub(r"^(?:\[\d+\]\s*)+", "", line)
+        check = re.sub(r"\s*\[Shared\]\s*$", "", check, flags=re.I).strip()
         if _ADMIN.fullmatch(check):
             continue
         if "[Rotation Request Comment]" in line and not _IMPACT.search(line):
@@ -63,9 +64,15 @@ def incident_facts(data):
         "area": field("Neighborhood", "neighborhood") or field("Area", "area") or field("City", "city"),
     }
     facts["type"] = re.sub(r"^[A-Za-z0-9]+-", "", facts["type"])
-    cross = field("Location Desc.", "location_desc")
-    if cross and cross.casefold() != facts["location"].casefold():
-        facts["cross_street"] = cross
+    if facts['source'].upper() in {'', 'CHP'}:
+        # CHP Area is a reporting office, not necessarily the incident's city.
+        facts.pop('area', None)
+        facts['reporting_area'] = field('Area', 'area')
+        facts['city'] = field('City', 'city')
+        facts['neighborhood'] = field('Neighborhood', 'neighborhood')
+    note = field("Location Desc.", "location_desc")
+    if note and note.casefold() != facts["location"].casefold():
+        facts["location_note"] = note
     details = data.get("Details", data.get("details", []))
     facts["reports_oldest_first"] = narrative_lines(details) if DESCRIPTION_COMPACT else detail_list(details)
     return {key: value for key, value in facts.items() if value}
@@ -74,6 +81,13 @@ def incident_facts(data):
 def fact_hash(facts):
     value = json.dumps(facts, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256((POLICY_VERSION + value.casefold()).encode()).hexdigest()
+
+
+def reviewed_report_phrase(line):
+    """Translate reviewed whole reports only; never guess a code or its actor."""
+    return {
+        'NEG VEHS PULLED OVER': 'No vehicles reported pulled over',
+    }.get(text(line).rstrip('. ').upper())
 
 
 def compact_input(facts):
@@ -93,6 +107,11 @@ def compact_input(facts):
             available -= len(line)
     result = {k: v for k, v in facts.items() if k != "reports_oldest_first"}
     result["reports_oldest_first"] = [selected[i] for i in sorted(selected)]
+    # Supplemental readings retain their original source phrase and chronology.
+    readings = {line: reviewed_report_phrase(line) for line in result['reports_oldest_first']
+                if reviewed_report_phrase(line)}
+    if readings:
+        result['reviewed_report_phrases'] = readings
     if len(selected) < len(lines):
         result["omitted_reports"] = len(lines) - len(selected)
     return result
@@ -132,6 +151,17 @@ def severity_for(facts):
     return severity
 
 
+def location_note_sentence(note):
+    """Quote ambiguous metadata; only an explicit valid TIL/TILL is a time."""
+    note = text(note).rstrip('. ')
+    if not note:
+        return ''
+    until = re.fullmatch(r'TILL?\s+([01]\d|2[0-3])([0-5]\d)', note, re.I)
+    if until:
+        return f"Until {until[1]}:{until[2]} noted."
+    return f"Location note: {note}."
+
+
 def template_description(facts):
     """Only category/location records qualify; narrative requires interpretation."""
     if facts.get("reports_oldest_first"):
@@ -141,12 +171,17 @@ def template_description(facts):
     kinds = {"traffic hazard": "Traffic hazard", "maintenance": "Maintenance",
              "assist ct with maintenance": "Road maintenance", "car fire": "Vehicle fire",
              "traffic collision": "Traffic collision", "wrong way driver": "Wrong-way driver",
-             "road/weather conditions": "Road or weather conditions"}
+             "road/weather conditions": "Road or weather conditions",
+             "assist with construction": "Construction assistance",
+             "traffic escort": "A traffic escort call", "escort": "An escort call",
+             "escort for road conditions": "An escort call for road conditions"}
     if kind.casefold() not in kinds:
         return None
     location = facts.get("location", "")
-    result = f"{facts.get('source', 'Source')} reports {kinds[kind.casefold()].lower()}"
+    result = kinds[kind.casefold()]
     if location:
         result += f" at {location}"
     result += "."
+    if facts.get("location_note"):
+        result += ' ' + location_note_sentence(facts['location_note'])
     return result if len(result) < 200 else None

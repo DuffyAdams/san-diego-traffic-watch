@@ -93,7 +93,7 @@ export function formatCommentTimestamp(timestamp) {
 }
 
 // Truncate description text
-export function truncateDescription(text, length = 150) {
+export function truncateDescription(text, length = 200) {
     if (!text) return "";
     if (text.length <= length) return text;
 

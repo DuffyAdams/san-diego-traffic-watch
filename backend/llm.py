@@ -8,9 +8,10 @@ from .config import (
     LLM_MAX_TOKENS, LLM_REASONING_EFFORT,
 )
 from .logging_utils import safe_print
-from .descriptions import source_description, usable_description
+from .descriptions import source_description, usable_description, dispatch_log_description
 from .incident_facts import compact_input, incident_facts, severity_for, POLICY_VERSION
 from .sqlite_utils import sqlite_connection
+from .summary_validation import SummaryValidationError, safe_error_code
 
 SYSTEM_PROMPT = (
     'Return JSON with only "summary": a factual sentence under 200 characters. '
@@ -19,7 +20,24 @@ SYSTEM_PROMPT = (
     'supersede older conflicting reports. Do not infer injuries, causes, arrests, delays, '
     'closures or resolution. Unit/FSP closure does not mean the road reopened. '
     'No advice, emoji, hashtags or commentary. If reports were omitted, do not infer '
-    'current road status from an older report.'
+    'current road status from an older report. '
+    'Never infer the actor: CHP is the source, not proof that CHP performed an action. '
+    'A caller reporting they found a cow owner does not mean CHP found the owner; '
+    'use actor-neutral prose if the actor is unclear. '
+    'reporting_area (legacy area) is dispatch coverage, not the incident city. '
+    'location_note (legacy cross_street) may be a time or note, not a cross street. '
+    'Ambiguous freeway connector shorthand such as TRANS is location context, '
+    'never movement or spread of a hazard; omit uncertain expansions. '
+    'Normalize clear plain words conservatively: NEG VEHS PULLED OVER means '
+    'no vehicles reported pulled over, never negative vehicles. Do not guess unknown codes. '
+    'No filler such as no further details or no reports provided. '
+    'Do not introduce descriptions with the reporting agency (CHP reports, SDPD report, etc.). Start with the incident facts. '
+    'Omit redundant San Diego city or county context; preserve San Diego when part of an actual street or place name, such as San Diego Ave or Via Rancho San Diego. '
+    'Mention an agency only when necessary to describe a specific supported action, not as a source label. '
+    'Prioritize concrete hazard, supported current status and relevant location over '
+    'source attribution and secondary chronology. Preserve uncertainty even when shortening. '
+    'Aim for 160 characters; the entire summary must be at most 199 characters including '
+    'spaces. Shorten before returning JSON; never truncate a fact or invent one to fit.'
 )
 SUMMARY_SCHEMA = {
     "type": "json_schema",
@@ -88,7 +106,7 @@ def generate_description(data, raise_on_error=False, usage_context=None):
         return summary, severity
     except Exception as exc:
         error = exc
-        safe_print(f"Description generation failed: {type(exc).__name__}")
+        safe_print(f"Description generation failed: {safe_error_code(exc)}")
         if raise_on_error:
             raise
         return source_description(data), severity
@@ -108,16 +126,28 @@ def _call_llm(system_prompt, user_message):
 
 def _parse_response(response, is_sig_alert=False):
     """Local validation remains necessary even with a provider JSON schema."""
-    choice = response.choices[0]
+    choices = _value(response, "choices", []) or []
+    if not choices:
+        raise SummaryValidationError("missing_choice")
+    choice = choices[0]
     if _value(choice, "finish_reason") not in (None, "stop"):
-        raise ValueError("Incident summary did not finish normally")
-    raw = choice.message.content
+        raise SummaryValidationError("unfinished_response")
+    raw = _value(_value(choice, "message"), "content")
     if not isinstance(raw, str) or not raw.strip():
-        raise ValueError("Empty incident summary")
-    parsed = json.loads(raw)
+        raise SummaryValidationError("empty_content")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        raise SummaryValidationError("invalid_json") from None
     if not isinstance(parsed, dict) or set(parsed) != {"summary"}:
-        raise ValueError("Unexpected incident summary fields")
+        raise SummaryValidationError("unexpected_fields")
     summary = parsed["summary"]
-    if not usable_description(summary) or len(summary.strip()) >= 200:
-        raise ValueError("Missing or oversized incident summary")
+    if not isinstance(summary, str):
+        raise SummaryValidationError("summary_type")
+    if not usable_description(summary):
+        raise SummaryValidationError("empty_summary")
+    if len(summary.strip()) >= 200:
+        raise SummaryValidationError("summary_too_long")
+    if dispatch_log_description(summary):
+        raise SummaryValidationError("dispatch_log")
     return summary.strip(), None

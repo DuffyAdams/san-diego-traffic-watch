@@ -81,6 +81,7 @@ class ImmediateLlmPipelineTests(unittest.TestCase):
             patch.object(llm, "TESTMODE", False),
             patch.object(llm, "LLM_API_CONFIGURED", True),
             patch.object(llm, "llm_client", client),
+            patch.object(llm, "record_attempt"),
             self.assertRaisesRegex(RuntimeError, "temporary provider failure"),
         ):
             llm.generate_description(

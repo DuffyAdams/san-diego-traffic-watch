@@ -1,6 +1,5 @@
 <script>
     import { createEventDispatcher } from "svelte";
-    import CircleDot from "lucide-svelte/icons/circle-dot";
     import CarFront from "lucide-svelte/icons/car-front";
     import Flame from "lucide-svelte/icons/flame";
     import Map from "lucide-svelte/icons/map";
@@ -9,10 +8,9 @@
     import { t } from "../../utils/i18n.js";
 
     const dispatch = createEventDispatcher();
-    export let activeSource = "all";
+    export let activeSource = "CHP";
 
     const tabs = [
-        { value: "all", label: t("filters.all"), icon: CircleDot },
         { value: "CHP", label: t("filters.traffic"), icon: CarFront },
         { value: "SDPD", label: t("filters.sdpd"), icon: Siren },
         { value: "SDSO", label: t("filters.sheriff"), icon: Shield },
@@ -94,7 +92,23 @@
     }
 
     @media (max-width: 650px) {
-        .source-tabs { padding-bottom: .1rem; }
-        .source-tab { min-height: 42px; padding: .55rem .75rem; }
+        .source-tabs {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            align-items: stretch;
+            gap: 0;
+            overflow: visible;
+        }
+        .source-tab {
+            min-width: 0;
+            min-height: 44px;
+            flex-direction: column;
+            gap: .25rem;
+            padding: .5rem .125rem;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+        .source-tab span { max-width: 100%; }
+        .source-tab :global(svg) { flex-shrink: 0; }
     }
 </style>

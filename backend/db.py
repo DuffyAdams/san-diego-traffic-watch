@@ -243,7 +243,11 @@ def read_incidents(
         cur.execute(query, tuple(params))
         incidents = [dict(row) for row in cur.fetchall()]
         for incident in incidents:
+            original = incident.get("description")
             incident["description"] = incident_description(incident)
+            if incident["description"] != (original.strip() if isinstance(original, str) else original):
+                # Read-only repair must not label deterministic fallback as AI.
+                incident["description_origin"] = "source"
 
         if incidents:
             _attach_comments(cur, incidents)

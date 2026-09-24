@@ -39,6 +39,44 @@ class DescriptionJobTests(unittest.TestCase):
         with sqlite_connection(self.path) as conn:
             conn.execute('UPDATE description_jobs SET due_at=0')
 
+    def test_public_read_repair_has_source_origin_and_keeps_raw_details(self):
+        raw = '[5:04 PM] [4] Unit At Scene'
+        self.save(Details=[raw])
+        with sqlite_connection(self.path) as conn:
+            conn.execute("UPDATE incidents SET description=?, description_origin='ai'", (raw,))
+        public = db.read_incidents()[0]
+        self.assertEqual(public['description'], 'Traffic collision reported at I5 N / Test Rd.')
+        self.assertEqual(public['description_origin'], 'source')
+        self.assertEqual(public['Details'], [raw])
+        self.assertEqual(self.row('incidents')['description'], raw)
+
+    def test_whitespace_only_cleanup_preserves_ai_origin(self):
+        self.save()
+        with sqlite_connection(self.path) as conn:
+            conn.execute("UPDATE incidents SET description='  A collision is reported.  ', description_origin='ai'")
+        public = db.read_incidents()[0]
+        self.assertEqual(public['description'], 'A collision is reported.')
+        self.assertEqual(public['description_origin'], 'ai')
+
+    def test_pending_and_failed_jobs_keep_readable_fallback_without_fake_success(self):
+        from types import SimpleNamespace as NS
+        from backend import llm
+        raw = ['[5:01 PM] [1] No injuries reported', '[5:04 PM] [4] Unit At Scene']
+        self.save(Details=raw)
+        pending = self.row('incidents')
+        self.assertNotIn('[', pending['description'])
+        self.assertIn('No injuries reported', pending['description'])
+        self.assertEqual(pending['description_origin'], 'source')
+        response = NS(choices=[NS(finish_reason='stop', message=NS(content='{"summary":"[5:04 PM] [4] Unit At Scene"}'))])
+        with patch.object(llm, 'TESTMODE', False), patch.object(llm, 'LLM_API_CONFIGURED', True), patch.object(llm, '_call_llm', return_value=response), patch.object(jobs, 'DESCRIPTION_MAX_ATTEMPTS', 1):
+            self.assertTrue(jobs.run_one(self.path, llm.generate_description))
+        self.assertEqual(self.row()['status'], 'failed')
+        self.assertIsNone(self.row()['completed_hash'])
+        self.assertEqual(self.row('llm_attempts')['outcome'], 'failed')
+        self.assertEqual(self.row('incidents')['description'], pending['description'])
+        self.assertEqual(json.loads(self.row('incidents')['details']), raw)
+        self.assertEqual(self.row('incidents')['description_origin'], 'source')
+
     def test_initial_then_unchanged_has_one_call_and_survives_restart(self):
         self.save()
         generate = Mock(return_value=('Reported collision on I-5.', None))
@@ -131,7 +169,7 @@ class DescriptionJobTests(unittest.TestCase):
         self.save(Details=['ALL LANES BLOCKED', 'ALL LANES OPEN'])
         row = self.row('incidents')
         self.assertEqual(row['description_origin'], 'source')
-        self.assertIn('ALL LANES OPEN', row['description'])
+        self.assertIn('All lanes open', row['description'])
         self.assertEqual(row['severity'], 1)
 
     def test_superseded_claim_is_skipped_before_provider_call(self):

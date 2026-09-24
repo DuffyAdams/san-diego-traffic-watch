@@ -14,6 +14,7 @@ from .config import (
 from .incident_facts import incident_facts, fact_hash, template_description, severity_for, urgent_change
 from .sqlite_utils import sqlite_connection
 from .descriptions import source_description
+from .summary_validation import safe_error_code
 
 
 def init_schema(conn):
@@ -169,7 +170,7 @@ def run_one(db_file, generate, now=None):
         with sqlite_connection(db_file) as conn:
             conn.execute("""UPDATE description_jobs SET attempts=?, due_at=?, last_error=?, status=?
                 WHERE incident_no=? AND date=? AND desired_hash=? AND lease_token=?""",
-                (attempts, (time.time() if now is None else now) + delay, type(exc).__name__,
+                (attempts, (time.time() if now is None else now) + delay, safe_error_code(exc),
                  "failed" if permanent or exhausted else "pending", *key, version, token))
             conn.execute("UPDATE description_jobs SET lease_token=NULL, lease_until=NULL WHERE incident_no=? AND date=? AND lease_token=?", (*key, token))
     return True

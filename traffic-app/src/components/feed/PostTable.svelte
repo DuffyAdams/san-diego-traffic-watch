@@ -198,6 +198,9 @@
                                                 on:click={(e) =>
                                                     handleToggleDescription(e, post.id)}
                                                 type="button"
+                                                aria-expanded={!!post.showFullDescription}
+                                                aria-label={t(post.showFullDescription ? "actions.collapseDescription" : "actions.expandDescription")}
+                                                title={t(post.showFullDescription ? "actions.collapseDescription" : "actions.expandDescription")}
                                             >
                                                 {post.showFullDescription
                                                     ? "[-]"
@@ -472,6 +475,7 @@
     }
 
     .description-text {
+        display: block;
         white-space: pre-wrap;
     }
 
@@ -486,12 +490,15 @@
         border: 1px solid var(--accent-primary);
         color: var(--accent-primary);
         padding: 0.2rem 0.5rem;
-        margin-left: 0.5rem;
+        margin-left: auto;
         margin-top: 0.25rem;
         font-size: 0.7rem;
         font-weight: bold;
         cursor: pointer;
-        display: inline-flex;
+        display: flex;
+        justify-content: center;
+        min-width: 44px;
+        min-height: 44px;
         align-items: center;
         transition: all 0.15s ease;
         text-transform: uppercase;

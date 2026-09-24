@@ -167,6 +167,7 @@
   let showActiveOnly = false;
   let timeFilter = "day";
   let searchQuery = "";
+  let searchExpanded = false;
   let suspendFeedMiniMaps = false;
   let miniMapSuspendScrollTop = 0;
   /** @type {Set<string>} */
@@ -203,7 +204,7 @@
   let statsReferenceTime = "";
 
   // Data Source Management
-  let activeSource = "all"; // 'all', 'CHP', 'SDPD', 'SDFD'
+  let activeSource = "CHP"; // 'CHP', 'SDPD', 'SDSO', 'SDFD', 'map'
 
   /**
    * @param {string} source
@@ -1292,7 +1293,7 @@
   </div>
 
   <div class="toolbar-row">
-    <div class="toolbar">
+    <div class="toolbar" class:search-expanded={searchExpanded}>
       <div class="tabs-container">
         <SourceTabs
           {activeSource}
@@ -1302,7 +1303,8 @@
       <div class="search-wrapper">
         <SearchBar
           bind:value={searchQuery}
-          on:activate={() => activeSource === "map" && setSourceFilter("all")}
+          bind:expanded={searchExpanded}
+          on:activate={() => activeSource === "map" && setSourceFilter("CHP")}
         />
       </div>
     </div>
@@ -1788,5 +1790,28 @@
     .toolbar-view-toggle {
       height: 0;
     }
+  }
+  @media (max-width: 650px) {
+    .toolbar { padding: 6px; }
+    .tabs-container {
+      flex: 1 1 auto;
+      margin-right: 48px;
+      overflow: visible;
+    }
+    /* Retain the tabs' intrinsic height while removing them from focus/accessibility. */
+    .search-expanded .tabs-container { visibility: hidden; }
+    .search-wrapper {
+      position: absolute;
+      left: calc(100% - 51px);
+      right: 6px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      transition: left .24s ease;
+    }
+    .search-expanded .search-wrapper { left: 6px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .search-wrapper { transition: none; }
   }
 </style>
